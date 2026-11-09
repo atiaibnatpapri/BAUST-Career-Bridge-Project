@@ -1,0 +1,6 @@
+{
+  "name": "BAUST Career Bridge",
+  "description": "Central Career Support, Mentorship & Administrative Network Platform for Bangladesh Army University of Science and Technology (BAUST)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

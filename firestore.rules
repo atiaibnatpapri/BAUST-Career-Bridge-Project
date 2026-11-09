@@ -1,0 +1,112 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'registrar@baust.edu.bd' ||
+        request.auth.token.email == 'atiaibnatpapri@gmail.com'
+      );
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+
+      // Normal users can create their own account as 'student' or 'alumni'
+      // Account MUST start as pending and unverified
+      allow create: if isOwner(userId) && (
+        request.resource.data.id == userId &&
+        (request.resource.data.role == 'student' || request.resource.data.role == 'alumni') &&
+        (request.resource.data.accountStatus == 'pending' || !('accountStatus' in request.resource.data)) &&
+        (request.resource.data.isVerified == false || !('isVerified' in request.resource.data))
+      ) || (isAdmin() && request.resource.data.id == userId);
+
+      // Normal users can update their profile but CANNOT escalate role or self-verify
+      allow update: if (
+        isOwner(userId) &&
+        request.resource.data.id == userId &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.isVerified == resource.data.isVerified &&
+        (!('accountStatus' in request.resource.data) || request.resource.data.accountStatus == resource.data.accountStatus) &&
+        (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == resource.data.verificationStatus)
+      ) || isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // Whitelisted Admins Collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Service Requests Collection (Transcripts & Certificates)
+    match /serviceRequests/{requestId} {
+      allow read: if isSignedIn() && (
+        resource.data.alumniId == request.auth.uid || isAdmin()
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.alumniId == request.auth.uid || isAdmin()
+      );
+      allow update: if isSignedIn() && (
+        (resource.data.alumniId == request.auth.uid && request.resource.data.alumniId == request.auth.uid) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Mentorship Requests Collection
+    match /mentorshipRequests/{requestId} {
+      allow read: if isSignedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        resource.data.alumniId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.studentId == request.auth.uid || isAdmin()
+      );
+      allow update: if isSignedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        resource.data.alumniId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Verifications Queue Collection
+    match /verifications/{verificationId} {
+      allow get: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && (
+        request.resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Test connection document
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+  }
+}

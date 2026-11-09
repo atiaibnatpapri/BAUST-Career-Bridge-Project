@@ -1,0 +1,304 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile stored in Firestore containing user role, academic details, and personal info",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique user ID (matches Firebase Auth UID)"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address"
+        },
+        "name": {
+          "type": "string",
+          "description": "User's full name",
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": ["student", "alumni", "admin"],
+          "description": "User role in BAUST Career Bridge"
+        },
+        "baustId": {
+          "type": "string",
+          "description": "Official BAUST student or alumni registration ID",
+          "maxLength": 30
+        },
+        "department": {
+          "type": "string",
+          "description": "Department name",
+          "maxLength": 50
+        },
+        "batch": {
+          "type": "string",
+          "description": "University batch identifier",
+          "maxLength": 50
+        },
+        "avatar": {
+          "type": "string",
+          "description": "Profile picture URL"
+        },
+        "phone": {
+          "type": "string",
+          "description": "User contact phone number",
+          "maxLength": 30
+        },
+        "bio": {
+          "type": "string",
+          "description": "Short biography",
+          "maxLength": 1000
+        },
+        "isVerified": {
+          "type": "boolean",
+          "description": "Whether the user profile has been verified by the Registrar admin"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp or server timestamp when account was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp when account was last updated"
+        },
+        "studentId": {
+          "type": "string",
+          "description": "Student ID (for student role)"
+        },
+        "currentSemester": {
+          "type": "string",
+          "description": "Current academic semester (for student role)"
+        },
+        "cgpa": {
+          "type": "number",
+          "description": "Current CGPA (for student role)"
+        },
+        "careerGoal": {
+          "type": "string",
+          "description": "Primary career aspirations"
+        },
+        "interests": {
+          "type": "array",
+          "description": "Skills and interest tags"
+        },
+        "cvFileName": {
+          "type": "string",
+          "description": "Uploaded CV file name"
+        },
+        "designation": {
+          "type": "string",
+          "description": "Current job title (for alumni role)"
+        },
+        "company": {
+          "type": "string",
+          "description": "Current employer or university (for alumni role)"
+        },
+        "sector": {
+          "type": "string",
+          "description": "Job sector (for alumni role)"
+        },
+        "location": {
+          "type": "string",
+          "description": "Current city / country"
+        },
+        "passingYear": {
+          "type": "number",
+          "description": "Graduation passing year"
+        },
+        "skills": {
+          "type": "array",
+          "description": "Technical & soft skills"
+        },
+        "mentoringAvailable": {
+          "type": "boolean",
+          "description": "Whether alumni is accepting mentorship requests"
+        }
+      },
+      "required": ["id", "email", "name", "role", "createdAt"]
+    },
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Authorized admin marker document in /admins/{uid}",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Admin user UID"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Admin email address"
+        },
+        "assignedAt": {
+          "type": "string",
+          "description": "When the admin privilege was authorized"
+        }
+      },
+      "required": ["uid", "email"]
+    },
+    "ServiceRequest": {
+      "title": "ServiceRequest",
+      "description": "Transcript or official certificate request filed by an alumnus",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Request unique ID"
+        },
+        "alumniId": {
+          "type": "string",
+          "description": "User UID who submitted the request"
+        },
+        "alumniName": {
+          "type": "string",
+          "description": "Alumni full name"
+        },
+        "alumniEmail": {
+          "type": "string",
+          "description": "Alumni contact email"
+        },
+        "baustId": {
+          "type": "string",
+          "description": "BAUST Student ID"
+        },
+        "department": {
+          "type": "string",
+          "description": "Department name"
+        },
+        "documentType": {
+          "type": "string",
+          "description": "Type of requested document"
+        },
+        "copies": {
+          "type": "number",
+          "description": "Number of copies"
+        },
+        "purpose": {
+          "type": "string",
+          "description": "Purpose of document"
+        },
+        "deliveryMethod": {
+          "type": "string",
+          "description": "Delivery method"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Payment gateway"
+        },
+        "transactionId": {
+          "type": "string",
+          "description": "Transaction identification number"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Total fees paid"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Under Review", "Approved", "Ready", "Delivered", "Rejected"]
+        },
+        "submittedAt": {
+          "type": "string",
+          "description": "Submission date"
+        }
+      },
+      "required": ["id", "alumniId", "documentType", "status", "submittedAt"]
+    },
+    "MentorshipRequest": {
+      "title": "MentorshipRequest",
+      "description": "1-on-1 mentorship session request between a student and an alumnus",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "studentId": {
+          "type": "string"
+        },
+        "studentName": {
+          "type": "string"
+        },
+        "alumniId": {
+          "type": "string"
+        },
+        "alumniName": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Accepted", "Declined", "Completed"]
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "studentId", "alumniId", "topic", "status", "createdAt"]
+    },
+    "VerificationItem": {
+      "title": "VerificationItem",
+      "description": "Student/Alumni ID verification queue item for admin review",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "baustId": {
+          "type": "string"
+        },
+        "department": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Approved", "Rejected"]
+        },
+        "submittedAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "userId", "name", "role", "baustId", "status", "submittedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles partitioned by user UID"
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "Whitelisted administrator accounts"
+    },
+    "/serviceRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/ServiceRequest" },
+      "description": "Official transcript and certificate requests"
+    },
+    "/mentorshipRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/MentorshipRequest" },
+      "description": "Mentorship application records"
+    },
+    "/verifications/{verificationId}": {
+      "schema": { "$ref": "#/entities/VerificationItem" },
+      "description": "Identity verification submission queue"
+    }
+  }
+}

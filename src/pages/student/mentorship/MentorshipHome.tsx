@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMentorshipStore } from '../../../hooks/useMentorshipStore';
 import { useApp } from '../../../context/AppContext';
 import { MentorCard } from '../../../components/mentorship/MentorCard';
@@ -17,6 +17,8 @@ import { CVReviewResultModal } from '../../../components/mentorship/CVReviewResu
 import { GoalsTrackerCard } from '../../../components/mentorship/GoalsTrackerCard';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
+import { Modal } from '../../../components/ui/Modal';
+import { Eye } from 'lucide-react';
 import { 
   Mentor, 
   MentorshipSector, 
@@ -24,6 +26,7 @@ import {
   CVReviewItem 
 } from '../../../types/mentorship';
 import { Department } from '../../../types';
+import { BAUST_DEPARTMENTS, BAUST_SECTORS } from '../../../constants/baustDataModel';
 import {
   Search,
   Filter,
@@ -50,6 +53,7 @@ import {
 
 export const MentorshipHome: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { 
     mentors, 
     sessions, 
@@ -57,7 +61,7 @@ export const MentorshipHome: React.FC = () => {
     cancelSession, 
     startSession 
   } = useMentorshipStore();
-  const { currentUser, language } = useApp();
+  const { currentUser, language, addToast } = useApp();
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<
@@ -79,6 +83,7 @@ export const MentorshipHome: React.FC = () => {
   const [bookingMentor, setBookingMentor] = useState<Mentor | null>(null);
   const [activeCallSession, setActiveCallSession] = useState<MentorshipSession | null>(null);
   const [feedbackSession, setFeedbackSession] = useState<MentorshipSession | null>(null);
+  const [detailsSession, setDetailsSession] = useState<MentorshipSession | null>(null);
   const [isCVRequestOpen, setIsCVRequestOpen] = useState(false);
   const [viewingCVResult, setViewingCVResult] = useState<CVReviewItem | null>(null);
 
@@ -91,7 +96,9 @@ export const MentorshipHome: React.FC = () => {
     return sessions.filter((s) => s.studentId === currentUser.id);
   }, [sessions, currentUser.id]);
 
-  const pendingSessions = studentSessions.filter((s) => s.status === 'PENDING');
+  const pendingSessions = studentSessions.filter(
+    (s) => s.status === 'PENDING' || s.status === 'ON_HOLD'
+  );
   const activeSessions = studentSessions.filter(
     (s) => s.status === 'ACCEPTED' || s.status === 'IN_PROGRESS'
   );
@@ -101,18 +108,51 @@ export const MentorshipHome: React.FC = () => {
   );
   const studentCVReviews = cvReviews.filter((c) => c.studentId === currentUser.id);
 
+  useEffect(() => {
+    const requestedMentorId = searchParams.get('mentor');
+    if (requestedMentorId) {
+      const matched = mentors.find((m) => m.id === requestedMentorId);
+      if (matched) {
+        setBookingMentor(matched);
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('mentor');
+        setSearchParams(nextParams, { replace: true });
+      }
+      return;
+    }
+
+    const reqId = searchParams.get('req');
+    if (reqId && studentSessions.length > 0) {
+      const matchedReq = studentSessions.find((s) => s.id === reqId);
+      if (matchedReq) {
+        if (matchedReq.status === 'PENDING' || matchedReq.status === 'ON_HOLD') {
+          setActiveTab('requests');
+        } else if (matchedReq.status === 'ACCEPTED' || matchedReq.status === 'IN_PROGRESS') {
+          setActiveTab('active');
+        } else if (matchedReq.status === 'COMPLETED') {
+          setActiveTab('completed');
+        } else {
+          setActiveTab('rejected');
+        }
+        setDetailsSession(matchedReq);
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('req');
+        setSearchParams(nextParams, { replace: true });
+      }
+    }
+  }, [searchParams, mentors, studentSessions, setSearchParams]);
+
   // Toggle compare
   const toggleCompare = (mentorId: string) => {
-    setComparedMentorIds((prev) => {
-      if (prev.includes(mentorId)) {
-        return prev.filter((id) => id !== mentorId);
-      }
-      if (prev.length >= 3) {
-        alert('You can compare a maximum of 3 mentors at a time.');
-        return prev;
-      }
-      return [...prev, mentorId];
-    });
+    if (comparedMentorIds.includes(mentorId)) {
+      setComparedMentorIds((prev) => prev.filter((id) => id !== mentorId));
+      return;
+    }
+    if (comparedMentorIds.length >= 3) {
+      addToast('warning', 'Comparison Limit Reached', 'You can compare a maximum of 3 mentors at a time.');
+      return;
+    }
+    setComparedMentorIds((prev) => [...prev, mentorId]);
   };
 
   const comparedMentors = mentors.filter((m) => comparedMentorIds.includes(m.id));
@@ -477,18 +517,7 @@ export const MentorshipHome: React.FC = () => {
                 Job Sector Filter:
               </span>
               <div className="flex flex-wrap items-center gap-2">
-                {(
-                  [
-                    'ALL',
-                    'Government',
-                    'Private',
-                    'Abroad',
-                    'Higher Study',
-                    'Research',
-                    'Business / Entrepreneurship',
-                    'Freelancing',
-                  ] as const
-                ).map((sec) => (
+                {(['ALL', ...BAUST_SECTORS] as const).map((sec) => (
                   <button
                     key={sec}
                     onClick={() => setSelectedSector(sec)}
@@ -545,14 +574,11 @@ export const MentorshipHome: React.FC = () => {
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-slate-700"
               >
                 <option value="ALL">All Departments</option>
-                <option value="CSE">CSE</option>
-                <option value="EEE">EEE</option>
-                <option value="ME">ME</option>
-                <option value="IPE">IPE</option>
-                <option value="CE">Civil (CE)</option>
-                <option value="TE">Textile (TE)</option>
-                <option value="BBA">BBA</option>
-                <option value="English">English</option>
+                {BAUST_DEPARTMENTS.map((d) => (
+                  <option key={d.code} value={d.code}>
+                    {d.nameEn}
+                  </option>
+                ))}
               </select>
 
               {/* Topic */}
@@ -696,7 +722,11 @@ export const MentorshipHome: React.FC = () => {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <h4 className="text-sm font-bold text-slate-900">{session.mentorName}</h4>
-                        <Badge variant="pending">Awaiting Response</Badge>
+                        {session.status === 'ON_HOLD' ? (
+                          <Badge variant="gold">On Hold</Badge>
+                        ) : (
+                          <Badge variant="pending">Awaiting Response</Badge>
+                        )}
                       </div>
                       <p className="text-xs text-slate-600">
                         {session.mentorDesignation} at <strong>{session.mentorCompany}</strong>
@@ -711,6 +741,11 @@ export const MentorshipHome: React.FC = () => {
                         <span>•</span>
                         <span>Mode: {session.mode}</span>
                       </div>
+                      {session.status === 'ON_HOLD' && session.rejectionReason && (
+                        <p className="text-xs text-amber-800 bg-amber-50 p-2 rounded-xl border border-amber-200 mt-1">
+                          <strong>Mentor note:</strong> {session.rejectionReason}
+                        </p>
+                      )}
                       {session.message && (
                         <p className="text-xs text-slate-600 italic bg-slate-50 p-2.5 rounded-xl border border-slate-100 mt-2">
                           "{session.message}"
@@ -720,6 +755,14 @@ export const MentorshipHome: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDetailsSession(session)}
+                    >
+                      <Eye className="w-3.5 h-3.5 mr-1" />
+                      Details
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -1171,6 +1214,103 @@ export const MentorshipHome: React.FC = () => {
         onClose={() => setViewingCVResult(null)}
         review={viewingCVResult}
       />
+
+      {detailsSession && (
+        <Modal
+          isOpen={!!detailsSession}
+          onClose={() => setDetailsSession(null)}
+          title={`Mentorship Request • ${detailsSession.mentorName}`}
+          description={`${detailsSession.topic} • ${detailsSession.scheduledSlot.day} (${detailsSession.scheduledSlot.time})`}
+          maxWidth="lg"
+        >
+          <div className="space-y-4 text-left">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-500">Current Status</span>
+                <Badge
+                  variant={
+                    detailsSession.status === 'ACCEPTED' || detailsSession.status === 'COMPLETED'
+                      ? 'approved'
+                      : detailsSession.status === 'ON_HOLD'
+                      ? 'gold'
+                      : detailsSession.status === 'REJECTED'
+                      ? 'rejected'
+                      : detailsSession.status === 'CANCELLED'
+                      ? 'neutral'
+                      : 'pending'
+                  }
+                >
+                  {detailsSession.status.replace('_', ' ')}
+                </Badge>
+              </div>
+              {detailsSession.message && (
+                <div>
+                  <span className="font-semibold text-slate-600 block mb-1">Your Request Note:</span>
+                  <p className="text-slate-700 italic bg-white p-2.5 rounded-lg border border-slate-200">
+                    "{detailsSession.message}"
+                  </p>
+                </div>
+              )}
+              {detailsSession.rejectionReason && (
+                <div>
+                  <span className="font-semibold text-slate-600 block mb-1">Mentor Feedback / Reason:</span>
+                  <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200">
+                    {detailsSession.rejectionReason}
+                  </p>
+                </div>
+              )}
+              {detailsSession.meetingLink && (
+                <div>
+                  <span className="font-semibold text-slate-600">Google Meet Link: </span>
+                  <a
+                    href={detailsSession.meetingLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#0F2A4A] underline font-mono"
+                  >
+                    {detailsSession.meetingLink}
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Status History</h4>
+              <div className="space-y-2 border-l-2 border-slate-200 pl-3">
+                {detailsSession.statusHistory.map((h, idx) => (
+                  <div key={idx} className="text-xs space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900">{h.status.replace('_', ' ')}</span>
+                      <span className="text-[11px] text-slate-400">{h.timestamp}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600">By {h.actorName}</p>
+                    {h.note && <p className="text-[11px] text-slate-500 italic">"{h.note}"</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              {(detailsSession.status === 'PENDING' || detailsSession.status === 'ON_HOLD') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    cancelSession(detailsSession.id, 'Withdrawn by student');
+                    setDetailsSession(null);
+                  }}
+                  className="text-rose-600"
+                >
+                  Withdraw Request
+                </Button>
+              )}
+              <Button variant="primary" size="sm" onClick={() => setDetailsSession(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

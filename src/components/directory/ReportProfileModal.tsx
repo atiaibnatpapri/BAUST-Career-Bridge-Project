@@ -7,6 +7,8 @@ import React, { useState } from 'react';
 import { ShieldAlert, X, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { DirectoryAlumniProfile } from '../../types/directory';
 import { useDirectoryStore } from '../../hooks/useDirectoryStore';
+import { useAuth } from '../../context/AuthContext';
+import { useApp } from '../../context/AppContext';
 
 interface ReportProfileModalProps {
   isOpen: boolean;
@@ -20,6 +22,8 @@ export const ReportProfileModal: React.FC<ReportProfileModalProps> = ({
   alumnus
 }) => {
   const { submitProfileReport } = useDirectoryStore();
+  const { userProfile } = useAuth();
+  const { currentUser } = useApp();
   const [reason, setReason] = useState<'Impersonation' | 'Fake Degree / BAUST Claim' | 'Misleading Employment' | 'Spam or Inappropriate' | 'Other'>('Impersonation');
   const [details, setDetails] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -31,16 +35,17 @@ export const ReportProfileModal: React.FC<ReportProfileModalProps> = ({
     submitProfileReport({
       reportedAlumniId: alumnus.id,
       reportedAlumniName: alumnus.name,
-      reporterId: 'stu-current',
-      reporterName: 'Tanvir Hossain Fahim',
+      reporterId: userProfile?.uid || userProfile?.id || currentUser?.id || '',
+      reporterName: userProfile?.name || currentUser?.name || 'BAUST Member',
       reason,
       details
     });
     setIsSubmitted(true);
     setTimeout(() => {
       setIsSubmitted(false);
+      setDetails('');
       onClose();
-    }, 2000);
+    }, 1800);
   };
 
   return (

@@ -3,36 +3,51 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { 
-  Mentor, 
-  MentorshipSession, 
-  CVReviewItem, 
-  MentorshipGoal, 
-  MentorshipStatus, 
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import {
+  Mentor,
+  MentorshipSession,
+  CVReviewItem,
+  MentorshipGoal,
   MentorTimeSlot,
   ActionItem,
   CVCategoryScore,
-  SectionComment
+  SectionComment,
 } from '../types/mentorship';
-import { mockMentors } from '../data/mentors';
-import { mockMentorshipSessions } from '../data/mentorshipRequests';
-import { mockCVReviews } from '../data/cvReviews';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
+import { toList } from '../utils/utils';
+import {
+  CVReviewEntity,
+  EvaluationEntity,
+  isVerifiedVisibleAlumni,
+  normalizeDepartment,
+  sanitizeUserForViewer,
+} from '../constants/baustDataModel';
+import {
+  createCVReviewRequest,
+  submitCVReviewFeedback,
+  submitStudentEvaluation,
+  subscribeCVReviews,
+  subscribeEvaluations,
+  triggerNotification,
+} from '../services/careerBridgeService';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase';
+import { updateFirestoreMentorship } from '../services/firestorePortal';
 
 interface MentorshipStoreContextType {
   mentors: Mentor[];
   sessions: MentorshipSession[];
   cvReviews: CVReviewItem[];
+  evaluations: EvaluationEntity[];
   savedMentorIds: string[];
   goals: MentorshipGoal[];
-  
-  // Mentor Actions
+
   toggleSaveMentor: (mentorId: string) => void;
   getMentorById: (id: string) => Mentor | undefined;
   calculateMatchScore: (mentor: Mentor) => number;
-  
-  // Session Lifecycle Actions
+
   requestSession: (params: {
     mentorId: string;
     topic: MentorshipSession['topic'];
@@ -42,8 +57,9 @@ interface MentorshipStoreContextType {
     slot: MentorTimeSlot;
     attachmentName?: string;
   }) => Promise<{ success: boolean; error?: string }>;
-  
+
   acceptSession: (sessionId: string, meetingLink?: string) => void;
+  holdSession: (sessionId: string, reason?: string) => void;
   declineSession: (sessionId: string, reason: string, note?: string) => void;
   cancelSession: (sessionId: string, reason?: string) => void;
   startSession: (sessionId: string) => void;
@@ -54,12 +70,11 @@ interface MentorshipStoreContextType {
     tags: string[],
     recommended: boolean
   ) => void;
-  
+
   updateSessionNotes: (sessionId: string, notes: string) => void;
   addActionItem: (sessionId: string, text: string) => void;
   toggleActionItem: (sessionId: string, itemId: string) => void;
-  
-  // CV Review Actions
+
   requestCVReview: (params: {
     mentorId: string;
     targetRole: string;
@@ -69,8 +84,8 @@ interface MentorshipStoreContextType {
     cvFileSize: string;
     deadlinePreference: 'Standard (3-5 days)' | 'Urgent (24-48 hours)';
     studentNotes?: string;
-  }) => void;
-  
+  }) => Promise<boolean>;
+
   submitCVReview: (params: {
     reviewId: string;
     overallScore: number;
@@ -79,97 +94,303 @@ interface MentorshipStoreContextType {
     areasToImprove: string[];
     sectionComments: SectionComment[];
     mentorSummary: string;
-  }) => void;
-  
+  }) => Promise<void>;
+
   sendCVThanks: (reviewId: string) => void;
-  
-  // Goals Actions
+
   createGoal: (goal: Omit<MentorshipGoal, 'id' | 'linkedSessionIds'>) => void;
   updateGoalProgress: (goalId: string, progress: number) => void;
 }
 
 const MentorshipStoreContext = createContext<MentorshipStoreContextType | undefined>(undefined);
 
+function mapCVReviewEntityToItem(r: CVReviewEntity): CVReviewItem {
+  return {
+    id: r.id,
+    studentId: r.studentId,
+    studentName: r.studentName,
+    studentAvatar: r.studentAvatar || '',
+    studentDept: normalizeDepartment(r.studentDept),
+    studentBatch: r.studentBatch || '',
+    mentorId: r.mentorId,
+    mentorName: r.mentorName,
+    mentorAvatar: r.mentorAvatar || '',
+    mentorCompany: r.mentorCompany || '',
+    targetRole: r.targetRole,
+    targetSector: r.targetSector,
+    version: 'v1',
+    cvFileName: r.cvFileName,
+    cvFileSize: 'PDF',
+    submittedAt: 'Recently',
+    deadlinePreference:
+      r.deadlinePreference === 'Urgent (24-48 hours)'
+        ? 'Urgent (24-48 hours)'
+        : 'Standard (3-5 days)',
+    status:
+      r.status === 'Reviewed' ? 'REVIEWED' : r.status === 'In Review' ? 'IN_REVIEW' : 'SUBMITTED',
+    overallScore: r.score,
+    overallRating: r.rating,
+    strengths: r.strengths || [],
+    areasToImprove: r.areasToImprove || [],
+    mentorSummary: r.mentorFeedback || '',
+    studentNotes: r.studentNotes,
+    thanksSent: r.thanksSent,
+  };
+}
+
 export const MentorshipStoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, addToast } = useApp();
+  const {
+    currentUser,
+    allUsers,
+    mentorshipRequests,
+    requestMentorship,
+    respondMentorship,
+    openOrCreateConversation,
+    addToast,
+  } = useApp();
+  const { firebaseUser, userProfile, loading: authLoading, updateUserProfile, registerSessionCleanup } =
+    useAuth();
 
-  // 1. Mentors State
-  const [mentors, setMentors] = useState<Mentor[]>(() => {
-    const saved = localStorage.getItem('baust_mentors_data');
-    return saved ? JSON.parse(saved) : mockMentors;
-  });
-
-  // 2. Mentorship Sessions State
-  const [sessions, setSessions] = useState<MentorshipSession[]>(() => {
-    const saved = localStorage.getItem('baust_mentorship_sessions');
-    return saved ? JSON.parse(saved) : mockMentorshipSessions;
-  });
-
-  // 3. CV Reviews State
-  const [cvReviews, setCvReviews] = useState<CVReviewItem[]>(() => {
-    const saved = localStorage.getItem('baust_cv_reviews');
-    return saved ? JSON.parse(saved) : mockCVReviews;
-  });
-
-  // 4. Saved / Bookmarked Mentors
-  const [savedMentorIds, setSavedMentorIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem('baust_saved_mentor_ids');
-    return saved ? JSON.parse(saved) : ['alm-1', 'alm-2'];
-  });
-
-  // 5. Goals Tracker
-  const [goals, setGoals] = useState<MentorshipGoal[]>(() => {
-    const saved = localStorage.getItem('baust_mentorship_goals');
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: 'goal-1',
-            studentId: 'std-1',
-            title: 'Land Junior Full-Stack Engineer Job at Top BD Tech Firm',
-            targetDate: 'Dec 2026',
-            category: 'Tech Job Prep',
-            progressPercentage: 65,
-            linkedSessionIds: ['MNT-2026-001', 'MNT-2026-005'],
-          },
-          {
-            id: 'goal-2',
-            studentId: 'std-1',
-            title: 'Prepare DAAD Scholarship Documents for Germany',
-            targetDate: 'Feb 2027',
-            category: 'Higher Studies',
-            progressPercentage: 30,
-            linkedSessionIds: ['MNT-2026-002'],
-          },
-        ];
-  });
-
-  // Sync to localStorage
-  useEffect(() => {
-    localStorage.setItem('baust_mentors_data', JSON.stringify(mentors));
-  }, [mentors]);
+  const [cvReviewDocs, setCvReviewDocs] = useState<CVReviewEntity[]>([]);
+  const [evaluations, setEvaluations] = useState<EvaluationEntity[]>([]);
+  const [savedMentorIds, setSavedMentorIds] = useState<string[]>([]);
+  const [goals, setGoals] = useState<MentorshipGoal[]>([]);
+  const [sessionNotesMap, setSessionNotesMap] = useState<Record<string, string>>({});
+  const [actionItemsMap, setActionItemsMap] = useState<Record<string, ActionItem[]>>({});
 
   useEffect(() => {
-    localStorage.setItem('baust_mentorship_sessions', JSON.stringify(sessions));
-  }, [sessions]);
+    setSavedMentorIds(toList(userProfile?.savedMentorIds));
+  }, [userProfile?.savedMentorIds]);
+
+  const isApproved =
+    !authLoading &&
+    Boolean(firebaseUser) &&
+    userProfile?.verificationStatus === 'approved' &&
+    !userProfile?.suspended;
+
+  // Live Firestore CV Reviews (#41, FR-16)
+  useEffect(() => {
+    if (!isApproved || !firebaseUser || !userProfile) {
+      setCvReviewDocs([]);
+      return;
+    }
+    const opts =
+      userProfile.role === 'student'
+        ? { studentId: firebaseUser.uid }
+        : userProfile.role === 'alumni'
+        ? { mentorId: firebaseUser.uid }
+        : {};
+    return subscribeCVReviews(
+      opts,
+      (docs) => setCvReviewDocs(docs),
+      (err) => console.warn('CV Reviews listener warning:', err.message)
+    );
+  }, [isApproved, firebaseUser, userProfile?.role]);
+
+  // Live Firestore Evaluations (FR-16)
+  useEffect(() => {
+    if (!isApproved || !firebaseUser) {
+      setEvaluations([]);
+      return;
+    }
+    return subscribeEvaluations(
+      {},
+      (docs) => setEvaluations(docs),
+      (err) => console.warn('Evaluations listener warning:', err.message)
+    );
+  }, [isApproved, firebaseUser]);
 
   useEffect(() => {
-    localStorage.setItem('baust_cv_reviews', JSON.stringify(cvReviews));
-  }, [cvReviews]);
+    return registerSessionCleanup(() => {
+      setCvReviewDocs([]);
+      setEvaluations([]);
+      setSavedMentorIds([]);
+      setGoals([]);
+      setSessionNotesMap({});
+      setActionItemsMap({});
+    });
+  }, [registerSessionCleanup]);
 
-  useEffect(() => {
-    localStorage.setItem('baust_saved_mentor_ids', JSON.stringify(savedMentorIds));
-  }, [savedMentorIds]);
+  // Live Firestore verified alumni mentors (#51, #63)
+  const mentors = useMemo<Mentor[]>(() => {
+    return allUsers
+      .filter((u) => isVerifiedVisibleAlumni(u))
+      .map((raw) => {
+        const u = sanitizeUserForViewer(raw, firebaseUser?.uid, userProfile?.role) || raw;
+        const uid = u.id || u.uid || '';
+        const userEvals = evaluations.filter((e) => e.alumniId === uid);
+        const evalCount = userEvals.length;
+        const avgRating =
+          evalCount > 0
+            ? Number(
+                (userEvals.reduce((s, e) => s + Number(e.rating || 5), 0) / evalCount).toFixed(1)
+              )
+            : typeof u.rating === 'number'
+            ? u.rating
+            : 0;
 
-  useEffect(() => {
-    localStorage.setItem('baust_mentorship_goals', JSON.stringify(goals));
-  }, [goals]);
+        const breakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } as Mentor['ratingBreakdown'];
+        userEvals.forEach((e) => {
+          const k = Math.min(5, Math.max(1, Math.round(e.rating))) as 1 | 2 | 3 | 4 | 5;
+          breakdown[k] += 1;
+        });
 
-  // Actions
+        const slots: MentorTimeSlot[] = toList(u.availableSlots).map((slotStr, idx) => {
+          const parts = slotStr.split(' ');
+          return {
+            id: `slot-${uid}-${idx}`,
+            day: parts[0] || 'Fri',
+            time: parts.slice(1).join(' ') || '08:00 PM',
+            isBooked: false,
+          };
+        });
+
+        return {
+          id: uid,
+          name: u.name || 'BAUST Alumni Mentor',
+          email: u.email || '',
+          avatar: u.avatar || '',
+          isVerified: Boolean(u.isVerified),
+          department: normalizeDepartment(u.department),
+          batch: u.batch || '',
+          passingYear: typeof u.passingYear === 'number' ? u.passingYear : 2022,
+          designation: u.designation || 'Alumni Mentor',
+          company: u.company || 'BAUST Network',
+          sector: (u.sector as any) || 'Private',
+          location: u.location || 'Bangladesh',
+          bio: u.bio || 'Verified BAUST Alumni Mentor.',
+          skills: toList(u.skills),
+          mentoringTopics:
+            toList(u.mentorshipTopics).length > 0
+              ? (toList(u.mentorshipTopics) as any)
+              : ['Career Guidance', 'CV Review'],
+          availableSlots: slots,
+          isAvailableNow: Boolean(u.mentoringAvailable),
+          rating: avgRating,
+          reviewCount: evalCount,
+          ratingBreakdown: breakdown,
+          sessionsCompleted: mentorshipRequests.filter(
+            (m) => m.alumniId === uid && m.status === 'Completed'
+          ).length,
+          studentsMentored: typeof u.totalMentees === 'number' ? u.totalMentees : evalCount,
+          responseTime: '< 24 hours',
+          acceptanceRate: 95,
+          reviews: userEvals.map((e) => ({
+            id: e.id,
+            studentId: e.studentId,
+            studentName: e.studentName,
+            studentAvatar: '',
+            studentDept: 'CSE',
+            studentBatch: '',
+            rating: e.rating,
+            tags: e.tags || [],
+            comment: e.comment,
+            recommended: e.recommended,
+            date: 'Verified',
+          })),
+          experienceTimeline: Array.isArray(u.experienceTimeline)
+            ? u.experienceTimeline.map((x: any) => ({
+                period: x?.duration || '',
+                role: x?.role || '',
+                company: x?.company || '',
+                description: x?.description || '',
+              }))
+            : [],
+          education: Array.isArray(u.education)
+            ? u.education.map((x: any) => ({
+                degree: x?.degree || '',
+                institution: x?.institution || '',
+                year: x?.year || '',
+              }))
+            : [],
+          achievements: toList(u.achievements),
+          linkedin: u.linkedin || '',
+          github: u.github || '',
+        };
+      });
+  }, [allUsers, evaluations, firebaseUser?.uid, mentorshipRequests, userProfile?.role]);
+
+  // Live Firestore mentorships mapped to MentorshipSession[]
+  const sessions = useMemo<MentorshipSession[]>(() => {
+    const mapToUiStatus = (raw: string): MentorshipSession['status'] => {
+      if (raw === 'Accepted') return 'ACCEPTED';
+      if (raw === 'On Hold') return 'ON_HOLD';
+      if (raw === 'Declined') return 'REJECTED';
+      if (raw === 'Completed') return 'COMPLETED';
+      if (raw === 'Cancelled') return 'CANCELLED';
+      return 'PENDING';
+    };
+
+    return mentorshipRequests.map((m) => {
+      const mentor = mentors.find((mt) => mt.id === m.alumniId);
+      const status = mapToUiStatus(m.status);
+      const persistedHistory =
+        Array.isArray(m.statusHistory) && m.statusHistory.length > 0
+          ? m.statusHistory.map((h) => ({
+              status: mapToUiStatus(h.status),
+              timestamp: h.at ? new Date(h.at).toLocaleString() : m.createdAt,
+              actorName: h.by || m.studentName,
+              actorRole: (h.by === m.studentName ? 'student' : 'alumni') as 'student' | 'alumni',
+              note: h.note || '',
+            }))
+          : [
+              {
+                status,
+                timestamp: m.createdAt,
+                actorName: m.studentName,
+                actorRole: 'student' as const,
+                note: m.note,
+              },
+            ];
+
+      return {
+        id: m.id,
+        studentId: m.studentId,
+        studentName: m.studentName,
+        studentEmail: '',
+        studentAvatar: m.studentAvatar || '',
+        studentDept: normalizeDepartment(m.studentDept),
+        studentBatch: m.studentBatch || '',
+        mentorId: m.alumniId,
+        mentorName: m.alumniName || mentor?.name || 'BAUST Alumni',
+        mentorAvatar: mentor?.avatar || '',
+        mentorDesignation: mentor?.designation || 'Alumni Mentor',
+        mentorCompany: m.alumniCompany || mentor?.company || '',
+        topic: m.topic,
+        goal: m.topic,
+        message: m.message || m.note,
+        mode: 'Video Call',
+        scheduledSlot: {
+          id: `slot-${m.id}`,
+          day: m.preferredDate || 'Flexible',
+          time: m.preferredTime || '08:00 PM',
+        },
+        status,
+        statusHistory: persistedHistory,
+        meetingLink: m.meetingLink,
+        sharedNotes: sessionNotesMap[m.id] ?? m.feedback ?? '',
+        actionItems: actionItemsMap[m.id] ?? [],
+        rejectionReason:
+          m.status === 'Declined' || m.status === 'On Hold' || m.status === 'Cancelled'
+            ? m.feedback
+            : undefined,
+        createdAt: m.createdAt,
+        updatedAt: m.updatedAt || m.createdAt,
+      };
+    });
+  }, [actionItemsMap, mentors, mentorshipRequests, sessionNotesMap]);
+
+  const cvReviews = useMemo<CVReviewItem[]>(() => {
+    return cvReviewDocs.map(mapCVReviewEntityToItem);
+  }, [cvReviewDocs]);
+
   const toggleSaveMentor = (mentorId: string) => {
     setSavedMentorIds((prev) => {
       const isSaved = prev.includes(mentorId);
       const updated = isSaved ? prev.filter((id) => id !== mentorId) : [...prev, mentorId];
+      if (firebaseUser) {
+        void updateUserProfile({ savedMentorIds: updated });
+      }
       addToast(
         'info',
         isSaved ? 'Removed from Bookmarks' : 'Mentor Bookmarked',
@@ -183,18 +404,16 @@ export const MentorshipStoreProvider: React.FC<{ children: React.ReactNode }> = 
     return mentors.find((m) => m.id === id);
   };
 
-  // Mock match score algorithm based on student department & interests
   const calculateMatchScore = (mentor: Mentor): number => {
-    let score = 70;
+    let score = 68;
     const studentDept = (currentUser as any).department || 'CSE';
-    if (mentor.department === studentDept) score += 15;
+    if (mentor.department === studentDept) score += 16;
     if (mentor.mentoringTopics.includes('CV Review')) score += 5;
-    if (mentor.rating >= 4.9) score += 5;
+    if (mentor.rating >= 4.5) score += 6;
     if (mentor.isAvailableNow) score += 4;
     return Math.min(score, 99);
   };
 
-  // Session Request Lifecycle
   const requestSession = async (params: {
     mentorId: string;
     topic: MentorshipSession['topic'];
@@ -204,176 +423,58 @@ export const MentorshipStoreProvider: React.FC<{ children: React.ReactNode }> = 
     slot: MentorTimeSlot;
     attachmentName?: string;
   }): Promise<{ success: boolean; error?: string }> => {
-    // TODO: replace with API call: POST /api/mentorship/requests
-
-    // Prevent duplicate pending requests to same mentor for same topic
-    const hasDuplicate = sessions.some(
-      (s) =>
-        s.studentId === currentUser.id &&
-        s.mentorId === params.mentorId &&
-        s.topic === params.topic &&
-        s.status === 'PENDING'
-    );
-
-    if (hasDuplicate) {
-      addToast('warning', 'Duplicate Request', 'You already have a pending request with this mentor for this topic.');
-      return { success: false, error: 'Duplicate pending request exists' };
+    if (!params.mentorId) {
+      addToast('error', 'Mentor Required', 'Please select a specific alumni mentor.');
+      return { success: false, error: 'Please select a specific alumni mentor.' };
+    }
+    const mentor = getMentorById(params.mentorId);
+    if (!mentor) {
+      addToast('error', 'Mentor Not Found', 'The selected mentor profile is unavailable.');
+      return { success: false, error: 'Selected mentor unavailable.' };
     }
 
-    const mentor = getMentorById(params.mentorId) || mentors[0];
-    const newSessionId = `MNT-2026-${Math.floor(100 + Math.random() * 900)}`;
-    const nowStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    const newSession: MentorshipSession = {
-      id: newSessionId,
+    return requestMentorship({
       studentId: currentUser.id,
       studentName: currentUser.name,
-      studentEmail: currentUser.email,
+      studentDept: normalizeDepartment((currentUser as any).department),
+      studentBatch: (currentUser as any).batch || '',
       studentAvatar: currentUser.avatar,
-      studentDept: (currentUser as any).department || 'CSE',
-      studentBatch: (currentUser as any).batch || '18th Batch',
-      mentorId: mentor.id,
-      mentorName: mentor.name,
-      mentorAvatar: mentor.avatar,
-      mentorDesignation: mentor.designation,
-      mentorCompany: mentor.company,
+      alumniId: mentor.id,
+      alumniName: mentor.name,
+      alumniCompany: mentor.company,
       topic: params.topic,
-      goal: params.goal,
-      message: params.message,
-      mode: params.mode,
-      scheduledSlot: params.slot,
-      attachmentName: params.attachmentName,
-      status: 'PENDING',
-      statusHistory: [
-        {
-          status: 'PENDING',
-          timestamp: `${nowStr} ${nowTimeStr}`,
-          actorName: currentUser.name,
-          actorRole: currentUser.role,
-          note: `Requested for ${params.slot.day} at ${params.slot.time}`,
-        },
-      ],
-      sharedNotes: '',
-      actionItems: [],
-      createdAt: nowStr,
-      updatedAt: nowStr,
-    };
-
-    setSessions((prev) => [newSession, ...prev]);
-    addToast('success', 'Mentorship Requested', `Request sent to ${mentor.name}. They will be notified.`);
-    return { success: true };
+      note: `${params.goal ? `[Goal: ${params.goal}] ` : ''}${params.message}`,
+      preferredDate: params.slot.day,
+      preferredTime: params.slot.time,
+    });
   };
 
   const acceptSession = (sessionId: string, meetingLink?: string) => {
-    // TODO: replace with API call: PATCH /api/mentorship/requests/:id/accept
-    const nowStr = new Date().toLocaleString();
-    const link = meetingLink || `https://meet.google.com/bau-${Math.random().toString(36).substring(2, 6)}-live`;
+    const target = sessions.find((s) => s.id === sessionId);
+    void respondMentorship(sessionId, 'Accepted', 'Session request accepted', meetingLink);
+    if (target?.studentId) {
+      void openOrCreateConversation(target.studentId, 'mentorship');
+    }
+  };
 
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== sessionId) return s;
-        return {
-          ...s,
-          status: 'ACCEPTED',
-          meetingLink: link,
-          updatedAt: nowStr,
-          statusHistory: [
-            ...s.statusHistory,
-            {
-              status: 'ACCEPTED',
-              timestamp: nowStr,
-              actorName: currentUser.name,
-              actorRole: currentUser.role,
-              note: `Session confirmed. Video link: ${link}`,
-            },
-          ],
-        };
-      })
+  const holdSession = (sessionId: string, reason?: string) => {
+    void respondMentorship(
+      sessionId,
+      'On Hold',
+      reason?.trim() || 'Placed on hold for schedule coordination.'
     );
-    addToast('success', 'Session Accepted', 'Google Meet link has been generated and student has been notified.');
   };
 
   const declineSession = (sessionId: string, reason: string, note?: string) => {
-    // TODO: replace with API call: PATCH /api/mentorship/requests/:id/decline
-    const nowStr = new Date().toLocaleString();
-
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== sessionId) return s;
-        return {
-          ...s,
-          status: 'REJECTED',
-          rejectionReason: reason + (note ? `: ${note}` : ''),
-          rejectionSuggestions: ['alm-1', 'alm-2', 'alm-22'],
-          updatedAt: nowStr,
-          statusHistory: [
-            ...s.statusHistory,
-            {
-              status: 'REJECTED',
-              timestamp: nowStr,
-              actorName: currentUser.name,
-              actorRole: currentUser.role,
-              note: reason,
-            },
-          ],
-        };
-      })
-    );
-    addToast('info', 'Request Declined', 'Student has been informed with suggestions for alternative mentors.');
+    void respondMentorship(sessionId, 'Declined', `${reason}${note ? `: ${note}` : ''}`);
   };
 
   const cancelSession = (sessionId: string, reason?: string) => {
-    // TODO: replace with API call: PATCH /api/mentorship/requests/:id/cancel
-    const nowStr = new Date().toLocaleString();
-
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== sessionId) return s;
-        return {
-          ...s,
-          status: 'CANCELLED',
-          updatedAt: nowStr,
-          statusHistory: [
-            ...s.statusHistory,
-            {
-              status: 'CANCELLED',
-              timestamp: nowStr,
-              actorName: currentUser.name,
-              actorRole: currentUser.role,
-              note: reason || 'Cancelled by user',
-            },
-          ],
-        };
-      })
-    );
-    addToast('warning', 'Session Cancelled', 'The session slot has been released.');
+    void respondMentorship(sessionId, 'Cancelled', reason || 'Withdrawn by student');
   };
 
-  const startSession = (sessionId: string) => {
-    // TODO: replace with API call: PATCH /api/mentorship/requests/:id/start
-    const nowStr = new Date().toLocaleString();
-
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== sessionId) return s;
-        return {
-          ...s,
-          status: 'IN_PROGRESS',
-          updatedAt: nowStr,
-          statusHistory: [
-            ...s.statusHistory,
-            {
-              status: 'IN_PROGRESS',
-              timestamp: nowStr,
-              actorName: currentUser.name,
-              actorRole: currentUser.role,
-              note: 'Call initiated',
-            },
-          ],
-        };
-      })
-    );
+  const startSession = (_sessionId: string) => {
+    // Session link open handled directly in UI
   };
 
   const completeSession = (
@@ -383,121 +484,59 @@ export const MentorshipStoreProvider: React.FC<{ children: React.ReactNode }> = 
     tags: string[],
     recommended: boolean
   ) => {
-    // TODO: replace with API call: POST /api/mentorship/sessions/:id/complete
-    const nowStr = new Date().toLocaleString();
     const session = sessions.find((s) => s.id === sessionId);
-
-    if (session) {
-      // Update mentor's live rating and reviews
-      setMentors((prev) =>
-        prev.map((m) => {
-          if (m.id !== session.mentorId) return m;
-
-          const newTotalReviews = m.reviewCount + 1;
-          const newAvgRating = parseFloat(
-            ((m.rating * m.reviewCount + rating) / newTotalReviews).toFixed(2)
-          );
-          const ratingKey = Math.min(Math.max(Math.round(rating), 1), 5) as 1 | 2 | 3 | 4 | 5;
-
-          const newReviewObj = {
-            id: 'rev-' + Date.now(),
-            studentId: session.studentId,
-            studentName: session.studentName,
-            studentAvatar: session.studentAvatar,
-            studentDept: session.studentDept,
-            studentBatch: session.studentBatch,
+    void updateFirestoreMentorship(sessionId, 'Completed', review, undefined, currentUser.name).then(
+      async () => {
+        if (session && firebaseUser) {
+          await submitStudentEvaluation({
+            studentId: firebaseUser.uid,
+            studentName: currentUser.name,
+            alumniId: session.mentorId,
+            alumniName: session.mentorName,
+            sessionId,
             rating,
-            tags,
             comment: review,
+            tags,
             recommended,
-            date: 'Today',
-          };
-
-          return {
-            ...m,
-            rating: newAvgRating,
-            reviewCount: newTotalReviews,
-            sessionsCompleted: m.sessionsCompleted + 1,
-            studentsMentored: m.studentsMentored + 1,
-            ratingBreakdown: {
-              ...m.ratingBreakdown,
-              [ratingKey]: m.ratingBreakdown[ratingKey] + 1,
-            },
-            reviews: [newReviewObj, ...m.reviews],
-          };
-        })
-      );
-    }
-
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== sessionId) return s;
-        return {
-          ...s,
-          status: 'COMPLETED',
-          studentRating: rating,
-          studentReview: review,
-          studentTags: tags,
-          studentRecommended: recommended,
-          updatedAt: nowStr,
-          statusHistory: [
-            ...s.statusHistory,
-            {
-              status: 'COMPLETED',
-              timestamp: nowStr,
-              actorName: currentUser.name,
-              actorRole: currentUser.role,
-              note: `Session marked complete with ${rating}-star review`,
-            },
-          ],
-        };
-      })
+          }).catch(() => {});
+        }
+        addToast('success', 'Session Completed', 'Your verified evaluation has been saved to Firestore.');
+      }
     );
-
-    addToast('success', 'Session Completed', 'Thank you! Your feedback has been recorded and mentor rating updated live.');
   };
 
   const updateSessionNotes = (sessionId: string, notes: string) => {
-    // TODO: replace with API call: PATCH /api/mentorship/sessions/:id/notes
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, sharedNotes: notes } : s))
-    );
+    setSessionNotesMap((prev) => ({ ...prev, [sessionId]: notes }));
+    void updateDoc(doc(db, 'mentorships', sessionId), {
+      feedback: notes,
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
   };
 
   const addActionItem = (sessionId: string, text: string) => {
-    // TODO: replace with API call: POST /api/mentorship/sessions/:id/actions
     const newItem: ActionItem = {
       id: 'act-' + Date.now(),
       text,
       completed: false,
       addedBy: currentUser.name,
     };
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessionId
-          ? { ...s, actionItems: [...(s.actionItems || []), newItem] }
-          : s
-      )
-    );
+    setActionItemsMap((prev) => ({
+      ...prev,
+      [sessionId]: [...(prev[sessionId] || []), newItem],
+    }));
     addToast('info', 'Action Item Added', text);
   };
 
   const toggleActionItem = (sessionId: string, itemId: string) => {
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== sessionId) return s;
-        return {
-          ...s,
-          actionItems: s.actionItems.map((a) =>
-            a.id === itemId ? { ...a, completed: !a.completed } : a
-          ),
-        };
-      })
-    );
+    setActionItemsMap((prev) => ({
+      ...prev,
+      [sessionId]: (prev[sessionId] || []).map((a) =>
+        a.id === itemId ? { ...a, completed: !a.completed } : a
+      ),
+    }));
   };
 
-  // CV Review Actions
-  const requestCVReview = (params: {
+  const requestCVReview = async (params: {
     mentorId: string;
     targetRole: string;
     targetSector: string;
@@ -506,39 +545,45 @@ export const MentorshipStoreProvider: React.FC<{ children: React.ReactNode }> = 
     cvFileSize: string;
     deadlinePreference: 'Standard (3-5 days)' | 'Urgent (24-48 hours)';
     studentNotes?: string;
-  }) => {
-    // TODO: replace with API call: POST /api/cv-reviews
-    const mentor = getMentorById(params.mentorId) || mentors[0];
-    const newId = `CVR-${Math.floor(200 + Math.random() * 800)}`;
-    const nowStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }): Promise<boolean> => {
+    if (!firebaseUser || !userProfile) {
+      addToast('error', 'Sign In Required', 'Please sign in to submit a CV review.');
+      return false;
+    }
+    const mentor = getMentorById(params.mentorId);
+    if (!mentor) {
+      addToast('error', 'Select Alumni Mentor', 'Please choose a verified alumni mentor for CV review.');
+      return false;
+    }
 
-    const newReview: CVReviewItem = {
-      id: newId,
-      studentId: currentUser.id,
-      studentName: currentUser.name,
-      studentAvatar: currentUser.avatar,
-      studentDept: (currentUser as any).department || 'CSE',
-      studentBatch: (currentUser as any).batch || '18th Batch',
-      mentorId: mentor.id,
-      mentorName: mentor.name,
-      mentorAvatar: mentor.avatar,
-      mentorCompany: mentor.company,
-      targetRole: params.targetRole,
-      targetSector: params.targetSector,
-      version: params.version,
-      cvFileName: params.cvFileName,
-      cvFileSize: params.cvFileSize,
-      submittedAt: nowStr,
-      deadlinePreference: params.deadlinePreference,
-      status: 'SUBMITTED',
-      studentNotes: params.studentNotes,
-    };
-
-    setCvReviews((prev) => [newReview, ...prev]);
-    addToast('success', 'CV Review Submitted', `Sent to ${mentor.name} (${params.version}).`);
+    try {
+      await createCVReviewRequest({
+        studentId: firebaseUser.uid,
+        studentName: userProfile.name,
+        studentEmail: userProfile.email,
+        studentDept: userProfile.department,
+        studentBatch: userProfile.batch,
+        studentAvatar: userProfile.avatar,
+        mentorId: mentor.id,
+        mentorName: mentor.name,
+        mentorCompany: mentor.company,
+        mentorAvatar: mentor.avatar,
+        targetRole: params.targetRole,
+        targetSector: params.targetSector,
+        cvFileName: params.cvFileName,
+        deadlinePreference: params.deadlinePreference,
+        studentNotes: params.studentNotes,
+        isDemo: Boolean(userProfile.isDemo),
+      });
+      addToast('success', 'CV Review Submitted', `Sent to ${mentor.name}.`);
+      return true;
+    } catch (err: any) {
+      addToast('error', 'Submission Failed', err?.message || 'Unable to submit CV review.');
+      return false;
+    }
   };
 
-  const submitCVReview = (params: {
+  const submitCVReview = async (params: {
     reviewId: string;
     overallScore: number;
     categoryScores: CVCategoryScore[];
@@ -546,39 +591,31 @@ export const MentorshipStoreProvider: React.FC<{ children: React.ReactNode }> = 
     areasToImprove: string[];
     sectionComments: SectionComment[];
     mentorSummary: string;
-  }) => {
-    // TODO: replace with API call: POST /api/cv-reviews/:id/evaluation
-    const nowStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const ratingOutOf5 = parseFloat(((params.overallScore / 100) * 5).toFixed(1));
-
-    setCvReviews((prev) =>
-      prev.map((c) => {
-        if (c.id !== params.reviewId) return c;
-        return {
-          ...c,
-          status: 'REVIEWED',
-          overallScore: params.overallScore,
-          overallRating: ratingOutOf5,
-          categoryScores: params.categoryScores,
-          strengths: params.strengths,
-          areasToImprove: params.areasToImprove,
-          sectionComments: params.sectionComments,
-          mentorSummary: params.mentorSummary,
-          reviewedAt: nowStr,
-        };
-      })
-    );
-    addToast('success', 'CV Review Published', 'Your rating and constructive feedback are now visible to the student.');
+  }): Promise<void> => {
+    const existing = cvReviewDocs.find((r) => r.id === params.reviewId);
+    if (!existing) return;
+    try {
+      await submitCVReviewFeedback({
+        review: existing,
+        score: params.overallScore,
+        strengths: params.strengths,
+        areasToImprove: params.areasToImprove,
+        mentorFeedback: params.mentorSummary,
+      });
+      addToast('success', 'CV Review Published', 'Feedback and score saved to Cloud Firestore.');
+    } catch (err: any) {
+      addToast('error', 'Save Failed', err?.message || 'Could not publish CV feedback.');
+    }
   };
 
   const sendCVThanks = (reviewId: string) => {
-    setCvReviews((prev) =>
-      prev.map((c) => (c.id === reviewId ? { ...c, thanksSent: true } : c))
-    );
-    addToast('success', 'Thank You Note Sent', 'Sent your appreciation to your alumni mentor!');
+    void updateDoc(doc(db, 'cvReviews', reviewId), { thanksSent: true, updatedAt: serverTimestamp() })
+      .then(() => {
+        addToast('success', 'Thank You Note Sent', 'Sent your appreciation to your alumni mentor!');
+      })
+      .catch(() => {});
   };
 
-  // Goals
   const createGoal = (goal: Omit<MentorshipGoal, 'id' | 'linkedSessionIds'>) => {
     const newGoal: MentorshipGoal = {
       ...goal,
@@ -601,6 +638,7 @@ export const MentorshipStoreProvider: React.FC<{ children: React.ReactNode }> = 
         mentors,
         sessions,
         cvReviews,
+        evaluations,
         savedMentorIds,
         goals,
         toggleSaveMentor,
@@ -608,6 +646,7 @@ export const MentorshipStoreProvider: React.FC<{ children: React.ReactNode }> = 
         calculateMatchScore,
         requestSession,
         acceptSession,
+        holdSession,
         declineSession,
         cancelSession,
         startSession,

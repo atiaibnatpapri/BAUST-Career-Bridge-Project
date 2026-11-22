@@ -8,9 +8,12 @@ import { Department, UserRole } from './index';
 export type MentorshipSector =
   | 'Government'
   | 'Private'
+  | 'MNC'
   | 'Abroad'
   | 'Higher Study'
+  | 'Higher Studies / Abroad'
   | 'Research'
+  | 'Business'
   | 'Business / Entrepreneurship'
   | 'Freelancing';
 
@@ -28,6 +31,7 @@ export type SessionMode = 'Chat' | 'Voice Call' | 'Video Call';
 
 export type MentorshipStatus =
   | 'PENDING'
+  | 'ON_HOLD'
   | 'ACCEPTED'
   | 'IN_PROGRESS'
   | 'COMPLETED'

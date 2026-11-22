@@ -40,13 +40,14 @@ export const DirectoryInsightsStrip: React.FC<DirectoryInsightsStripProps> = ({ 
     const openToRefer = profiles.filter((p) => p.openToReferrals).length;
     
     // Unique companies
-    const companies = new Set(profiles.map((p) => p.company.trim()).filter(Boolean));
+    const companies = new Set((profiles ?? []).map((p) => (p?.company ?? '').trim()).filter(Boolean));
     // Unique countries
-    const countries = new Set(profiles.map((p) => p.country?.trim() || 'Bangladesh'));
+    const countries = new Set((profiles ?? []).map((p) => (p?.country ?? '').trim() || 'Bangladesh'));
 
     // Sector breakdown
     const sectorCountMap: Record<string, number> = {};
-    profiles.forEach((p) => {
+    (profiles ?? []).forEach((p) => {
+      if (!p) return;
       const sec = p.sector || 'Private';
       sectorCountMap[sec] = (sectorCountMap[sec] || 0) + 1;
     });
@@ -59,8 +60,9 @@ export const DirectoryInsightsStrip: React.FC<DirectoryInsightsStripProps> = ({ 
 
     // Batch breakdown (e.g. 1st to 8th)
     const batchMap: Record<string, number> = {};
-    profiles.forEach((p) => {
-      const b = p.batch?.split(' ')[0] || `${p.batchNumber}th`;
+    (profiles ?? []).forEach((p) => {
+      if (!p) return;
+      const b = (p.batch ?? '').split(' ')[0] || `${p.batchNumber ?? ''}th`;
       batchMap[b] = (batchMap[b] || 0) + 1;
     });
 

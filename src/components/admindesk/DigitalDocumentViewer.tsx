@@ -24,8 +24,8 @@ export const DigitalDocumentViewer: React.FC<DigitalDocumentViewerProps> = ({
     documentNumber: `BAUST/EXAM/${request.services[0]?.serviceId.toUpperCase()}/2026/${request.id.slice(-4)}`,
     title: `${request.services[0]?.serviceName} (Official Certified Digital Copy)`,
     issuedDate: new Date().toISOString().split('T')[0],
-    qrCodeUrl: `https://bcb.baust.edu.bd/verify-document?id=${request.id}`,
-    fileUrl: `https://example.com/docs/${request.id}.pdf`,
+    qrCodeUrl: `#/verify-document?id=${request.id}`,
+    fileUrl: `#document-${request.id}`,
     watermark: 'DIGITAL OFFICIAL COPY - BAUST EXAM ARCHIVES',
     digitalSignature: 'ENG. MD. JAHIDUL ISLAM, ASST. CONTROLLER',
     signatoryTitle: 'Assistant Controller of Examinations'
@@ -93,18 +93,29 @@ export const DigitalDocumentViewer: React.FC<DigitalDocumentViewerProps> = ({
             {/* Recipient Details & Body */}
             <div className="space-y-4 text-xs sm:text-sm text-slate-800 leading-relaxed relative z-10 font-serif">
               <p>
-                This is to certify that <strong>{request.alumniName}</strong>, bearing BAUST Student ID <strong>{request.baustId}</strong>, was a bona fide undergraduate student of the Department of <strong>{request.department}</strong> (<strong>{request.batch}</strong>).
+                This is to certify that <strong>{request.alumniName}</strong>
+                {request.baustId ? (
+                  <>
+                    , bearing BAUST ID <strong>{request.baustId}</strong>
+                  </>
+                ) : null}
+                , is a verified academic member of the Department of <strong>{request.department || 'BAUST'}</strong>
+                {request.batch ? ` (${request.batch})` : ''}.
               </p>
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 font-sans grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs my-4">
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-bold">Graduation Year</span>
-                  <div className="font-bold text-slate-900">{request.passingYear}</div>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-bold">Cumulative GPA</span>
-                  <div className="font-bold text-amber-900">{request.cgpa.toFixed(2)} / 4.00</div>
-                </div>
+                {typeof request.passingYear === 'number' && request.passingYear > 0 && (
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">Graduation Year</span>
+                    <div className="font-bold text-slate-900">{request.passingYear}</div>
+                  </div>
+                )}
+                {typeof request.cgpa === 'number' && request.cgpa > 0 && (
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">Cumulative GPA</span>
+                    <div className="font-bold text-amber-900">{request.cgpa.toFixed(2)} / 4.00</div>
+                  </div>
+                )}
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase font-bold">Document Serial</span>
                   <div className="font-mono font-bold text-slate-800">{doc.documentNumber}</div>

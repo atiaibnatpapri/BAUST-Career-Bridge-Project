@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Department } from './index';
+import { Department, UserRole } from './index';
 
 export type ServiceCategory = 'Academic Documents' | 'Verification' | 'Letters' | 'Certificates' | 'Others';
 
@@ -110,24 +110,37 @@ export interface FinalDeliverableDoc {
   signatoryTitle: string;
 }
 
+import type { DocStageKey, DocumentStageRecord } from '../constants/baustDataModel';
+
+export interface AdminDeskDeliveryInfo {
+  note?: string;
+  link?: string;
+  pickupLocation?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface AdminDeskRequest {
   id: string; // Tracking ID e.g., BCB-2026-000123
+  trackingId?: string;
   alumniId: string;
+  applicantRole?: UserRole;
   alumniName: string;
   alumniEmail: string;
-  alumniPhone: string;
+  alumniPhone?: string;
   alumniAvatar: string;
-  baustId: string;
-  department: Department;
-  batch: string;
-  passingYear: number;
-  cgpa: number;
+  baustId?: string;
+  department?: Department | string;
+  batch?: string;
+  passingYear?: number;
+  cgpa?: number;
   services: RequestItemServiceDetail[];
   uploadedDocuments: UploadedDocItem[];
   delivery: {
     method: DeliveryMethodType;
     pickupDate?: string;
     pickupTimeSlot?: string;
+    pickupInfo?: string;
     courierAddress?: string;
     courierFee?: number;
     recipientEmail?: string;
@@ -144,17 +157,28 @@ export interface AdminDeskRequest {
     courierFee: number;
     totalAmount: number;
     isVerified: boolean;
+    verifiedAt?: string;
+    verifiedBy?: string;
     slipUrl?: string;
     paidAt: string;
   };
   status: AdminDeskRequestStatus;
+  stages?: DocumentStageRecord[];
+  currentStageIndex?: number;
+  currentStageKey?: DocStageKey;
+  deliveryInfo?: AdminDeskDeliveryInfo;
   urgency: RequestUrgency;
   submittedAt: string;
+  updatedAt?: string;
   estimatedDelivery: string;
   assignedStaffId?: string;
   assignedStaffName?: string;
   rejectionReason?: 'Invalid documents' | 'Payment not verified' | 'Record mismatch' | 'Duplicate request' | 'Other';
   rejectionMessage?: string;
+  rejectedAt?: string;
+  rejectedBy?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
   actionRequiredReason?: string;
   adminRemarks?: string;
   internalStaffNotes?: string[];
@@ -179,6 +203,17 @@ export interface AdminDeskRequest {
     resolved: boolean;
     resolutionRemarks?: string;
   };
+  deliveryUrl?: string;
+  pickupInfo?: string;
+  statusHistory?: {
+    status: string;
+    stageKey?: string;
+    action?: 'advance' | 'undo' | 'reject' | 'cancel' | 'submit';
+    at: string;
+    by: string;
+    byName?: string;
+    note?: string;
+  }[];
   auditLog: {
     id: string;
     action: string;

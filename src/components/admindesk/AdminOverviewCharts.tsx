@@ -25,6 +25,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { AdminDeskRequest } from '../../types/admindesk';
+import { computeLargestRemainderPercentages } from '../../constants/baustDataModel';
 
 interface AdminOverviewChartsProps {
   requests: AdminDeskRequest[];
@@ -66,11 +67,12 @@ export const AdminOverviewCharts: React.FC<AdminOverviewChartsProps> = ({
     return acc;
   }, {});
 
-  const donutData = Object.entries(statusCounts).map(([name, value]) => ({
+  const rawDonut = Object.entries(statusCounts).map(([name, value]) => ({
     name,
     value,
-    color: STATUS_COLORS[name] || '#6B7280'
+    color: STATUS_COLORS[name] || '#6B7280',
   }));
+  const donutData = computeLargestRemainderPercentages(rawDonut);
 
   // Service distribution for Bar Chart
   const serviceCounts = requests.reduce<Record<string, number>>((acc, r) => {
@@ -85,15 +87,34 @@ export const AdminOverviewCharts: React.FC<AdminOverviewChartsProps> = ({
     .sort((a, b) => b.count - a.count)
     .slice(0, 6);
 
-  // Weekly Trend Mock
-  const lineData = [
-    { week: 'W1 Oct', requests: 4, completed: 3 },
-    { week: 'W2 Oct', requests: 7, completed: 6 },
-    { week: 'W3 Oct', requests: 9, completed: 8 },
-    { week: 'W4 Oct', requests: 12, completed: 10 },
-    { week: 'W1 Nov', requests: 15, completed: 11 },
-    { week: 'W2 Nov', requests: requests.length, completed: readyOrDelivered }
-  ];
+  // Live Weekly Trend aggregated from Firestore request submittedAt dates (#43)
+  const lineData = React.useMemo(() => {
+    const bucketMap = new Map<string, { week: string; sortKey: number; requests: number; completed: number }>();
+    (requests || []).forEach((r) => {
+      const parsed = new Date(r.submittedAt || Date.now());
+      const dateObj = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+      const startOfWeek = new Date(dateObj);
+      startOfWeek.setDate(dateObj.getDate() - dateObj.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      const label = startOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const prev = bucketMap.get(label) || {
+        week: label,
+        sortKey: startOfWeek.getTime(),
+        requests: 0,
+        completed: 0,
+      };
+      prev.requests += 1;
+      if (['Ready', 'Delivered'].includes(r.status)) {
+        prev.completed += 1;
+      }
+      bucketMap.set(label, prev);
+    });
+    const list = Array.from(bucketMap.values())
+      .sort((a, b) => a.sortKey - b.sortKey)
+      .slice(-6)
+      .map(({ week, requests: reqCount, completed }) => ({ week, requests: reqCount, completed }));
+    return list.length > 0 ? list : [{ week: 'Current', requests: 0, completed: 0 }];
+  }, [requests]);
 
   // Urgent attention requests
   const attentionRequests = requests
@@ -117,7 +138,7 @@ export const AdminOverviewCharts: React.FC<AdminOverviewChartsProps> = ({
           <div className="mt-4 flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-[#0F2A4A]">{total}</span>
             <span className="text-xs font-medium text-emerald-600 flex items-center">
-              <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> +18% this mo
+              <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> {pendingReview + actionRequired} active
             </span>
           </div>
           <p className="mt-1 text-xs text-gray-500">All registered service requests</p>
@@ -174,7 +195,7 @@ export const AdminOverviewCharts: React.FC<AdminOverviewChartsProps> = ({
           <div className="mt-4 flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-emerald-900">{readyOrDelivered}</span>
             <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-              98.2% SLA Met
+              {total > 0 ? Math.round((readyOrDelivered / total) * 100) : 0}% Fulfilled
             </span>
           </div>
           <p className="mt-1 text-xs text-emerald-700/80">Ready for pickup or delivered</p>
@@ -191,7 +212,8 @@ export const AdminOverviewCharts: React.FC<AdminOverviewChartsProps> = ({
               <p className="text-xs text-gray-500">Weekly intake vs completed deliverables over the last 6 weeks</p>
             </div>
             <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 text-gray-700 rounded-lg flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-gray-500" /> Autumn 2026
+              <Calendar className="w-3.5 h-3.5 text-gray-500" />{' '}
+              {new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
             </span>
           </div>
           <div className="h-64">
@@ -266,7 +288,9 @@ export const AdminOverviewCharts: React.FC<AdminOverviewChartsProps> = ({
               <div key={idx} className="flex items-center gap-1.5 truncate">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
                 <span className="text-gray-600 truncate">{item.name}:</span>
-                <span className="font-semibold text-gray-900">{item.value}</span>
+                <span className="font-semibold text-gray-900">
+                  {item.value} ({item.percentage}%)
+                </span>
               </div>
             ))}
           </div>
@@ -329,7 +353,7 @@ export const AdminOverviewCharts: React.FC<AdminOverviewChartsProps> = ({
                 >
                   <div className="flex items-start gap-3">
                     <div className="w-9 h-9 rounded-full bg-blue-50 border border-blue-200 text-[#0F2A4A] flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                      {item.alumniName.substring(0, 2).toUpperCase()}
+                      {(item?.alumniName ?? 'AL').substring(0, 2).toUpperCase()}
                     </div>
                     <div>
                       <div className="flex items-center gap-2">

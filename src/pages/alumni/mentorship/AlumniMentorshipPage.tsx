@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMentorshipStore } from '../../../hooks/useMentorshipStore';
 import { useApp } from '../../../context/AppContext';
 import { MockCallModal } from '../../../components/mentorship/MockCallModal';
@@ -13,7 +13,8 @@ import { CVReviewResultModal } from '../../../components/mentorship/CVReviewResu
 import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
-import { MentorshipSession, CVReviewItem } from '../../../types/mentorship';
+import { Mentor, MentorshipSession, CVReviewItem } from '../../../types/mentorship';
+import { normalizeDepartment } from '../../../constants/baustDataModel';
 import {
   Calendar,
   Clock,
@@ -23,30 +24,64 @@ import {
   FileText,
   Star,
   Users,
-  Award,
   Sliders,
-  AlertTriangle,
-  MessageSquare,
   Sparkles,
-  ChevronRight,
-  UserCheck
+  UserCheck,
+  PauseCircle,
+  Eye,
+  History
 } from 'lucide-react';
 
 export const AlumniMentorshipPage: React.FC = () => {
   const navigate = useNavigate();
-  const { 
-    mentors, 
-    sessions, 
-    cvReviews, 
-    acceptSession, 
-    declineSession, 
-    startSession 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    mentors,
+    sessions,
+    cvReviews,
+    acceptSession,
+    holdSession,
+    declineSession,
+    startSession
   } = useMentorshipStore();
   const { currentUser, language } = useApp();
 
-  // Active alumni profile
-  const alumniProfile = useMemo(() => {
-    return mentors.find((m) => m.id === currentUser.id || m.email === currentUser.email) || mentors[0];
+  // Active alumni profile without falling back to another user (prevents data leaks)
+  const alumniProfile = useMemo<Mentor>(() => {
+    const matched = mentors.find(
+      (m) => m.id === currentUser.id || (currentUser.email && m.email === currentUser.email)
+    );
+    if (matched) return matched;
+    return {
+      id: currentUser.id,
+      name: currentUser.name || 'BAUST Alumni',
+      email: currentUser.email || '',
+      avatar: currentUser.avatar || '',
+      isVerified: Boolean(currentUser.isVerified),
+      department: normalizeDepartment(currentUser.department),
+      batch: currentUser.batch || '',
+      passingYear: (currentUser as any).passingYear || 2020,
+      designation: (currentUser as any).designation || 'BAUST Alumni',
+      company: (currentUser as any).company || 'Partner Organization',
+      sector: ((currentUser as any).sector as any) || 'Private',
+      location: (currentUser as any).location || 'Bangladesh',
+      bio: (currentUser as any).bio || '',
+      skills: [],
+      mentoringTopics: [],
+      availableSlots: [],
+      isAvailableNow: Boolean((currentUser as any).mentoringAvailable),
+      rating: (currentUser as any).rating || 0,
+      reviewCount: 0,
+      ratingBreakdown: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+      sessionsCompleted: 0,
+      studentsMentored: (currentUser as any).totalMentees || 0,
+      responseTime: '< 24 hours',
+      acceptanceRate: 95,
+      reviews: [],
+      experienceTimeline: [],
+      education: [],
+      achievements: [],
+    };
   }, [mentors, currentUser]);
 
   const [activeTab, setActiveTab] = useState<'requests' | 'upcoming' | 'cv-queue' | 'completed' | 'history'>('requests');
@@ -55,38 +90,69 @@ export const AlumniMentorshipPage: React.FC = () => {
   const [activeCallSession, setActiveCallSession] = useState<MentorshipSession | null>(null);
   const [evaluatingCV, setEvaluatingCV] = useState<CVReviewItem | null>(null);
   const [viewingCVResult, setViewingCVResult] = useState<CVReviewItem | null>(null);
+  const [detailsSession, setDetailsSession] = useState<MentorshipSession | null>(null);
+
+  // Put On Hold Dialog
+  const [holdSessionTarget, setHoldSessionTarget] = useState<MentorshipSession | null>(null);
+  const [holdReason, setHoldReason] = useState('Reviewing weekly schedule — will confirm an exact time slot shortly.');
 
   // Decline Dialog
   const [declineSessionTarget, setDeclineSessionTarget] = useState<MentorshipSession | null>(null);
   const [declineReason, setDeclineReason] = useState('Schedule conflict with office commitments');
   const [declineNote, setDeclineNote] = useState('Please check my open slots next weekend or connect with senior alumni in CSE.');
 
-  // Filter sessions relevant to this alumnus
+  // Strictly filter sessions belonging to current alumnus UID
   const alumniSessions = useMemo(() => {
-    return sessions.filter((s) => s.mentorId === alumniProfile.id || s.mentorName === alumniProfile.name);
-  }, [sessions, alumniProfile]);
+    if (!currentUser.id) return [];
+    return sessions.filter((s) => s.mentorId === currentUser.id);
+  }, [sessions, currentUser.id]);
+
+  // Deep-link ?req=<id>
+  useEffect(() => {
+    const reqId = searchParams.get('req');
+    if (!reqId || alumniSessions.length === 0) return;
+    const matched = alumniSessions.find((s) => s.id === reqId);
+    if (!matched) return;
+    if (matched.status === 'PENDING') setActiveTab('requests');
+    else if (matched.status === 'ACCEPTED' || matched.status === 'IN_PROGRESS') setActiveTab('upcoming');
+    else if (matched.status === 'COMPLETED') setActiveTab('completed');
+    else setActiveTab('history');
+    setDetailsSession(matched);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('req');
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, alumniSessions, setSearchParams]);
 
   const pendingRequests = alumniSessions.filter((s) => s.status === 'PENDING');
   const upcomingSessions = alumniSessions.filter(
     (s) => s.status === 'ACCEPTED' || s.status === 'IN_PROGRESS'
   );
   const completedSessions = alumniSessions.filter((s) => s.status === 'COMPLETED');
-  const declinedSessions = alumniSessions.filter(
-    (s) => s.status === 'REJECTED' || s.status === 'CANCELLED'
+  const archivedSessions = alumniSessions.filter(
+    (s) => s.status === 'ON_HOLD' || s.status === 'REJECTED' || s.status === 'CANCELLED'
   );
 
-  // CV reviews for this alumnus
+  // CV reviews strictly for this alumnus
   const pendingCVReviews = cvReviews.filter(
-    (c) => (c.mentorId === alumniProfile.id || c.mentorName === alumniProfile.name) && c.status !== 'REVIEWED'
+    (c) => c.mentorId === currentUser.id && c.status !== 'REVIEWED'
   );
   const completedCVReviews = cvReviews.filter(
-    (c) => (c.mentorId === alumniProfile.id || c.mentorName === alumniProfile.name) && c.status === 'REVIEWED'
+    (c) => c.mentorId === currentUser.id && c.status === 'REVIEWED'
   );
+
+  const handleConfirmHold = () => {
+    if (holdSessionTarget) {
+      holdSession(holdSessionTarget.id, holdReason);
+      setHoldSessionTarget(null);
+      setDetailsSession(null);
+    }
+  };
 
   const handleConfirmDecline = () => {
     if (declineSessionTarget) {
       declineSession(declineSessionTarget.id, declineReason, declineNote);
       setDeclineSessionTarget(null);
+      setDetailsSession(null);
     }
   };
 
@@ -119,11 +185,11 @@ export const AlumniMentorshipPage: React.FC = () => {
 
           <Button
             variant="primary"
-            onClick={() => navigate(`/student/mentorship/mentor/${alumniProfile.id}`)}
+            onClick={() => navigate('/alumni/my-profile')}
             className="flex items-center gap-2"
           >
             <Sparkles className="w-4 h-4 text-[#C9A227]" />
-            View Public Profile
+            View My Profile
           </Button>
         </div>
       </div>
@@ -241,6 +307,23 @@ export const AlumniMentorshipPage: React.FC = () => {
             <CheckCircle2 className="w-4 h-4" />
             Completed History ({completedSessions.length})
           </button>
+
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'history'
+                ? 'bg-[#0F2A4A] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            On Hold & Declined
+            {archivedSessions.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-200 text-slate-800 font-bold">
+                {archivedSessions.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -313,8 +396,27 @@ export const AlumniMentorshipPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Accept / Decline CTA Buttons */}
-                  <div className="flex items-center gap-2.5 self-end md:self-center shrink-0">
+                  {/* Accept / On Hold / Decline / Details CTA Buttons */}
+                  <div className="flex flex-wrap items-center gap-2 self-end md:self-center shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDetailsSession(session)}
+                    >
+                      <Eye className="w-3.5 h-3.5 mr-1" />
+                      Details
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setHoldSessionTarget(session)}
+                      className="text-amber-700 hover:text-amber-900 hover:bg-amber-50"
+                    >
+                      <PauseCircle className="w-3.5 h-3.5 mr-1" />
+                      Put On Hold
+                    </Button>
+
                     <Button
                       variant="outline"
                       size="sm"
@@ -381,7 +483,7 @@ export const AlumniMentorshipPage: React.FC = () => {
                       </div>
 
                       <p className="text-xs text-slate-600">
-                        Dept of {session.studentDept} • {session.studentBatch} ({session.studentEmail})
+                        Dept of {session.studentDept} • {session.studentBatch} ({session.studentEmail || 'Verified Student'})
                       </p>
 
                       <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200/80 text-xs text-emerald-950 flex flex-wrap items-center gap-3">
@@ -415,6 +517,14 @@ export const AlumniMentorshipPage: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2.5 self-end md:self-center shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDetailsSession(session)}
+                    >
+                      <Eye className="w-3.5 h-3.5 mr-1" />
+                      Timeline
+                    </Button>
                     <Button
                       variant="primary"
                       onClick={() => {
@@ -578,9 +688,9 @@ export const AlumniMentorshipPage: React.FC = () => {
                     </p>
                   )}
 
-                  {session.studentTags && session.studentTags.length > 0 && (
+                  <div className="flex items-center justify-between pt-1">
                     <div className="flex flex-wrap gap-1">
-                      {session.studentTags.map((tag) => (
+                      {(session.studentTags || []).map((tag) => (
                         <span
                           key={tag}
                           className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 text-emerald-800"
@@ -589,12 +699,138 @@ export const AlumniMentorshipPage: React.FC = () => {
                         </span>
                       ))}
                     </div>
-                  )}
+                    <Button variant="ghost" size="sm" onClick={() => setDetailsSession(session)}>
+                      <Eye className="w-3.5 h-3.5 mr-1" />
+                      Timeline
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+      )}
+
+      {/* TAB 5: ON HOLD & DECLINED / CANCELLED */}
+      {activeTab === 'history' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900">
+              On Hold, Declined & Cancelled Requests ({archivedSessions.length})
+            </h3>
+            <span className="text-xs text-slate-500">
+              You can accept or decline requests currently placed On Hold.
+            </span>
+          </div>
+
+          {archivedSessions.length === 0 ? (
+            <div className="p-8 text-center bg-white rounded-2xl border border-slate-200">
+              <p className="text-xs text-slate-500">No requests on hold, declined, or cancelled.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {archivedSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-bold text-slate-900">{session.studentName}</h4>
+                      <Badge
+                        variant={
+                          session.status === 'ON_HOLD'
+                            ? 'gold'
+                            : session.status === 'REJECTED'
+                            ? 'rejected'
+                            : 'neutral'
+                        }
+                      >
+                        {session.status === 'ON_HOLD'
+                          ? 'On Hold'
+                          : session.status === 'REJECTED'
+                          ? 'Declined'
+                          : 'Cancelled'}
+                      </Badge>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                        {session.topic}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600">
+                      Slot: {session.scheduledSlot.day} ({session.scheduledSlot.time}) · {session.studentDept}
+                    </p>
+                    {session.rejectionReason && (
+                      <p className="text-xs text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
+                        <strong>Note:</strong> {session.rejectionReason}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => setDetailsSession(session)}>
+                      <Eye className="w-3.5 h-3.5 mr-1" />
+                      Timeline
+                    </Button>
+                    {session.status === 'ON_HOLD' && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDeclineSessionTarget(session)}
+                          className="text-rose-600 hover:bg-rose-50"
+                        >
+                          Decline
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => acceptSession(session.id)}
+                          className="bg-[#2E5E3E] hover:bg-[#254b32]"
+                        >
+                          Accept & Schedule
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Put On Hold Modal */}
+      {holdSessionTarget && (
+        <Modal
+          isOpen={!!holdSessionTarget}
+          onClose={() => setHoldSessionTarget(null)}
+          title={`Put Request On Hold · ${holdSessionTarget.studentName}`}
+          maxWidth="md"
+        >
+          <div className="space-y-4 text-left">
+            <p className="text-xs text-slate-600">
+              Add an optional note letting the student know when you expect to confirm or reschedule:
+            </p>
+            <textarea
+              value={holdReason}
+              onChange={(e) => setHoldReason(e.target.value)}
+              rows={3}
+              className="w-full text-xs rounded-xl border border-slate-300 p-2.5"
+            />
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <Button variant="outline" onClick={() => setHoldSessionTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleConfirmHold}
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                Place On Hold
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Decline Reason Modal */}
@@ -656,6 +892,115 @@ export const AlumniMentorshipPage: React.FC = () => {
                 className="bg-rose-600 hover:bg-rose-700"
               >
                 Confirm Decline
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Request Details & Status History Modal */}
+      {detailsSession && (
+        <Modal
+          isOpen={!!detailsSession}
+          onClose={() => setDetailsSession(null)}
+          title={`Mentorship Request • ${detailsSession.studentName}`}
+          description={`${detailsSession.topic} • ${detailsSession.scheduledSlot.day} (${detailsSession.scheduledSlot.time})`}
+          maxWidth="lg"
+        >
+          <div className="space-y-4 text-left">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-500">Status</span>
+                <Badge
+                  variant={
+                    detailsSession.status === 'ACCEPTED' || detailsSession.status === 'COMPLETED'
+                      ? 'approved'
+                      : detailsSession.status === 'ON_HOLD'
+                      ? 'gold'
+                      : detailsSession.status === 'REJECTED'
+                      ? 'rejected'
+                      : detailsSession.status === 'CANCELLED'
+                      ? 'neutral'
+                      : 'pending'
+                  }
+                >
+                  {detailsSession.status.replace('_', ' ')}
+                </Badge>
+              </div>
+              {detailsSession.message && (
+                <div>
+                  <span className="font-semibold text-slate-600 block mb-1">Student Message:</span>
+                  <p className="text-slate-700 italic bg-white p-2.5 rounded-lg border border-slate-200">
+                    "{detailsSession.message}"
+                  </p>
+                </div>
+              )}
+              {detailsSession.meetingLink && (
+                <div>
+                  <span className="font-semibold text-slate-600">Meeting Link: </span>
+                  <a
+                    href={detailsSession.meetingLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#0F2A4A] underline font-mono"
+                  >
+                    {detailsSession.meetingLink}
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Status History</h4>
+              <div className="space-y-2 border-l-2 border-slate-200 pl-3">
+                {detailsSession.statusHistory.map((h, idx) => (
+                  <div key={idx} className="text-xs space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900">{h.status.replace('_', ' ')}</span>
+                      <span className="text-[11px] text-slate-400">{h.timestamp}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600">By {h.actorName}</p>
+                    {h.note && <p className="text-[11px] text-slate-500 italic">"{h.note}"</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-100">
+              {(detailsSession.status === 'PENDING' || detailsSession.status === 'ON_HOLD') && (
+                <>
+                  {detailsSession.status === 'PENDING' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setHoldSessionTarget(detailsSession)}
+                    >
+                      Put On Hold
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDeclineSessionTarget(detailsSession)}
+                    className="text-rose-600"
+                  >
+                    Decline
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      acceptSession(detailsSession.id);
+                      setDetailsSession(null);
+                    }}
+                    className="bg-[#2E5E3E] hover:bg-[#254b32]"
+                  >
+                    Confirm & Generate Meet
+                  </Button>
+                </>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setDetailsSession(null)}>
+                Close
               </Button>
             </div>
           </div>

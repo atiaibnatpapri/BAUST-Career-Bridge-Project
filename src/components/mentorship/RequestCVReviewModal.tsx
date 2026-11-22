@@ -39,13 +39,11 @@ export const RequestCVReviewModal: React.FC<RequestCVReviewModalProps> = ({
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-
-    setTimeout(() => {
-      // TODO: replace with API call: POST /api/cv-reviews
-      requestCVReview({
+    try {
+      const ok = await requestCVReview({
         mentorId: selectedMentorId,
         targetRole,
         targetSector,
@@ -55,9 +53,12 @@ export const RequestCVReviewModal: React.FC<RequestCVReviewModalProps> = ({
         deadlinePreference,
         studentNotes,
       });
+      if (ok) {
+        onClose();
+      }
+    } finally {
       setIsSubmitting(false);
-      onClose();
-    }, 400);
+    }
   };
 
   return (

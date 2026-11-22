@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Mentor, MentorshipTopic, SessionMode, MentorTimeSlot } from '../../types/mentorship';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 
 import { useMentorshipStore } from '../../hooks/useMentorshipStore';
+import { useAuth } from '../../context/AuthContext';
 
 export interface RequestMentorshipModalProps {
   isOpen: boolean;
@@ -49,18 +50,30 @@ export const RequestMentorshipModal: React.FC<RequestMentorshipModalProps> = ({
   onSubmit,
 }) => {
   const store = useMentorshipStore();
-  if (!mentor) return null;
+  const { userProfile } = useAuth();
+  const profileCvName = userProfile?.cvFileName?.trim() || '';
 
   const [step, setStep] = useState<number>(1);
-  const [topic, setTopic] = useState<MentorshipTopic>(mentor.mentoringTopics[0] || 'Career Guidance');
+  const [topic, setTopic] = useState<MentorshipTopic>(mentor?.mentoringTopics[0] || 'Career Guidance');
   const [goal, setGoal] = useState<string>('');
   const [message, setMessage] = useState<string>('');
   const [mode, setMode] = useState<SessionMode>('Video Call');
   const [selectedSlotId, setSelectedSlotId] = useState<string>(
-    initialSlot?.id || mentor.availableSlots[0]?.id || ''
+    initialSlot?.id || mentor?.availableSlots[0]?.id || ''
   );
   const [attachmentName, setAttachmentName] = useState<string>('');
+  const [validationError, setValidationError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!mentor) return;
+    setStep(1);
+    setTopic(mentor.mentoringTopics[0] || 'Career Guidance');
+    setSelectedSlotId(initialSlot?.id || mentor.availableSlots[0]?.id || '');
+    setValidationError('');
+  }, [mentor?.id, initialSlot?.id]);
+
+  if (!mentor) return null;
 
   const templates: { label: string; text: string; goal: string }[] = [
     {
@@ -83,6 +96,7 @@ export const RequestMentorshipModal: React.FC<RequestMentorshipModalProps> = ({
   const handleApplyTemplate = (tmpl: typeof templates[0]) => {
     setGoal(tmpl.goal);
     setMessage(tmpl.text);
+    setValidationError('');
   };
 
   const selectedSlot = mentor.availableSlots.find((s) => s.id === selectedSlotId) || mentor.availableSlots[0] || {
@@ -93,9 +107,10 @@ export const RequestMentorshipModal: React.FC<RequestMentorshipModalProps> = ({
 
   const handleNext = () => {
     if (step === 1 && (!goal.trim() || !message.trim())) {
-      alert('Please provide your session goal and message to the mentor.');
+      setValidationError('Please provide your session goal and message to the mentor.');
       return;
     }
+    setValidationError('');
     setStep(step + 1);
   };
 
@@ -213,7 +228,10 @@ export const RequestMentorshipModal: React.FC<RequestMentorshipModalProps> = ({
               label="Primary Goal in One Line"
               placeholder="e.g. Audit resume for junior software engineer roles..."
               value={goal}
-              onChange={(e) => setGoal(e.target.value)}
+              onChange={(e) => {
+                setGoal(e.target.value);
+                if (validationError) setValidationError('');
+              }}
               required
             />
 
@@ -227,10 +245,19 @@ export const RequestMentorshipModal: React.FC<RequestMentorshipModalProps> = ({
                 rows={4}
                 maxLength={350}
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  if (validationError) setValidationError('');
+                }}
                 required
               />
             </div>
+
+            {validationError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-medium text-rose-700">
+                {validationError}
+              </div>
+            )}
 
             <div className="flex justify-end pt-2">
               <Button variant="primary" onClick={handleNext} rightIcon={<ArrowRight className="w-4 h-4" />}>
@@ -315,14 +342,31 @@ export const RequestMentorshipModal: React.FC<RequestMentorshipModalProps> = ({
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setAttachmentName('Tanvir_Ahmed_CSE_CV_v2.pdf')}
-                  className="w-full py-2.5 border border-dashed border-slate-300 rounded-xl text-xs text-slate-600 hover:border-slate-400 flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Paperclip className="w-4 h-4 text-slate-400" />
-                  Attach Existing CV (Tanvir_Ahmed_CSE_CV_v2.pdf)
-                </button>
+                <div className="space-y-2">
+                  {profileCvName && (
+                    <button
+                      type="button"
+                      onClick={() => setAttachmentName(profileCvName)}
+                      className="w-full py-2.5 border border-dashed border-slate-300 rounded-xl text-xs text-slate-600 hover:border-slate-400 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Paperclip className="w-4 h-4 text-slate-400" />
+                      Attach Profile CV ({profileCvName})
+                    </button>
+                  )}
+                  <label className="w-full py-2.5 border border-dashed border-slate-300 rounded-xl text-xs text-slate-600 hover:border-slate-400 flex items-center justify-center gap-2 cursor-pointer">
+                    <Paperclip className="w-4 h-4 text-slate-400" />
+                    <span>{profileCvName ? 'Or choose another file...' : 'Select CV / Portfolio File...'}</span>
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) setAttachmentName(file.name);
+                      }}
+                    />
+                  </label>
+                </div>
               )}
             </div>
 

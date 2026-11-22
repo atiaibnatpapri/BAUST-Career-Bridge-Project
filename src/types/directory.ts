@@ -77,6 +77,11 @@ export interface DirectoryAlumniProfile {
   bioBn?: string;
   headline: string; // e.g. "Staff Software Engineer at Optimizely | Ex-Grab | BAUST CSE 4th"
   isVerified: boolean;
+  verifiedAlumniBadge?: boolean;
+  isFeatured?: boolean;
+  _privacyRestricted?: boolean;
+  _hiddenEmail?: boolean;
+  _hiddenPhone?: boolean;
   verificationBadgeLevel?: 'Gold' | 'Official BAUST' | 'Top Mentor';
   isReverificationPending?: boolean;
   reverificationNotice?: string;

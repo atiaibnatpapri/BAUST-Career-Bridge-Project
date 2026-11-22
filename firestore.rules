@@ -2,111 +2,717 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Default deny all
+    // Deny everything by default
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions
+    // Core Auth & Config Helpers
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Keep synchronized with ENABLE_DEMO_LOGIN in src/config/demoConfig.ts
+    function demoFlagDefault() {
+      return true;
+    }
+
+    function demoEnabled() {
+      return demoFlagDefault() && (
+        !exists(/databases/$(database)/documents/config/app) ||
+        get(/databases/$(database)/documents/config/app).data.get('demoEnabled', true) == true
+      );
+    }
+
+    function isDemoEmail(email) {
+      return email in [
+        'demo.student@baustdemo.com',
+        'demo.alumni@baustdemo.com',
+        'demo.admin@baustdemo.com',
+        'demo.superadmin@baustdemo.com'
+      ];
+    }
+
+    function isDemoEmailForRole(role) {
+      return isSignedIn() && request.auth.token.email != null && (
+        (request.auth.token.email == 'demo.student@baustdemo.com' && role == 'student') ||
+        (request.auth.token.email == 'demo.alumni@baustdemo.com' && role == 'alumni') ||
+        (request.auth.token.email == 'demo.admin@baustdemo.com' && role == 'admin') ||
+        (request.auth.token.email == 'demo.superadmin@baustdemo.com' && role == 'superAdmin')
+      );
+    }
+
+    function isProtectedDemoDoc(data) {
+      return data != null && (
+        data.get('isDemo', false) == true ||
+        isDemoEmail(data.get('email', ''))
+      );
+    }
+
+    function userExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function userRole() {
+      return userDoc().role;
+    }
+
+    function isDemoCaller() {
+      return userExists() && isProtectedDemoDoc(userDoc());
+    }
+
+    function isActiveDemoAllowed() {
+      return !isDemoCaller() || demoEnabled();
+    }
+
+    function isNotSuspended() {
+      return userExists() && userDoc().get('suspended', false) != true;
+    }
+
+    function isApproved() {
+      return isNotSuspended() && userDoc().verificationStatus == 'approved' && isActiveDemoAllowed();
+    }
+
+    function isStudent() {
+      return isApproved() && userRole() == 'student';
+    }
+
+    function isAlumni() {
+      return isApproved() && userRole() == 'alumni';
     }
 
     function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'registrar@baust.edu.bd' ||
-        request.auth.token.email == 'atiaibnatpapri@gmail.com'
-      );
+      return isApproved() && userRole() == 'admin';
     }
 
-    // Users Collection
-    match /users/{userId} {
+    function isSuperAdmin() {
+      return isApproved() && userRole() == 'superAdmin';
+    }
+
+    // 0. App Config Document ({ demoEnabled: true/false })
+    match /config/{configId} {
       allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin();
+      allow delete: if false;
+    }
 
-      // Normal users can create their own account as 'student' or 'alumni'
-      // Account MUST start as pending and unverified
-      allow create: if isOwner(userId) && (
+    // 0b. BAUST ID Lookup Index (get-only for uniqueness check & BAUST ID login #52; never listable)
+    match /idIndex/{baustId} {
+      allow get: if isValidId(baustId);
+      allow list: if false;
+      allow create: if (
+        isSignedIn() &&
+        isValidId(baustId) &&
+        !exists(/databases/$(database)/documents/idIndex/$(baustId)) &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.email is string &&
+        request.resource.data.role in ['student', 'alumni', 'admin'] &&
+        request.resource.data.get('isDemo', false) != true
+      ) || (
+        isSuperAdmin() && isValidId(baustId)
+      );
+      allow update: if isSuperAdmin() && isValidId(baustId);
+      allow delete: if isSuperAdmin() && isValidId(baustId);
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (
+        (request.auth.uid == userId && isActiveDemoAllowed()) || isApproved()
+      );
+
+      allow list: if isApproved();
+
+      // Create:
+      // (a) Normal self-registration: student/alumni/admin only, pending, isVerified false, not demo
+      // (b) Demo auto-provisioning: exact matching demo token email -> role, approved, isVerified true, isDemo == true
+      // (c) Super Admin seeding a missing demo user doc
+      allow create: if (
+        isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        request.resource.data.uid == userId &&
         request.resource.data.id == userId &&
-        (request.resource.data.role == 'student' || request.resource.data.role == 'alumni') &&
-        (request.resource.data.accountStatus == 'pending' || !('accountStatus' in request.resource.data)) &&
-        (request.resource.data.isVerified == false || !('isVerified' in request.resource.data))
-      ) || (isAdmin() && request.resource.data.id == userId);
+        request.resource.data.role in ['student', 'alumni', 'admin'] &&
+        request.resource.data.verificationStatus == 'pending' &&
+        request.resource.data.accountStatus == 'pending' &&
+        request.resource.data.isVerified == false &&
+        request.resource.data.get('verifiedAlumniBadge', false) == false &&
+        request.resource.data.get('isFeatured', false) == false &&
+        request.resource.data.get('suspended', false) == false &&
+        request.resource.data.get('isDemo', false) != true &&
+        !isDemoEmail(request.resource.data.get('email', ''))
+      ) || (
+        isSignedIn() &&
+        demoEnabled() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        request.resource.data.uid == userId &&
+        request.resource.data.id == userId &&
+        request.resource.data.get('isDemo', false) == true &&
+        request.resource.data.verificationStatus == 'approved' &&
+        request.resource.data.isVerified == true &&
+        request.resource.data.get('suspended', false) == false &&
+        isDemoEmailForRole(request.resource.data.role)
+      ) || (
+        isSuperAdmin() &&
+        demoEnabled() &&
+        isValidId(userId) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.id == userId &&
+        request.resource.data.get('isDemo', false) == true &&
+        request.resource.data.verificationStatus == 'approved' &&
+        request.resource.data.isVerified == true &&
+        request.resource.data.get('suspended', false) == false &&
+        isDemoEmail(request.resource.data.get('email', ''))
+      );
 
-      // Normal users can update their profile but CANNOT escalate role or self-verify
+      // Update:
+      // (a) Self profile edit (non-demo user): strictly prevents altering identity/role/verification/privilege fields
+      // (b) Demo self-repair / demo profile edit: matching demo token email preserving privilege flags
+      // (c) Admin: can toggle `isFeatured` on approved non-demo alumni, OR suspend/reactivate non-demo student/alumni
+      // (d) Super Admin: can update non-demo users (verify, grant/revoke badge, feature, suspend, etc.)
       allow update: if (
-        isOwner(userId) &&
+        isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        !isProtectedDemoDoc(resource.data) &&
+        isNotSuspended() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'verificationStatus', 'accountStatus', 'isVerified',
+          'verifiedAlumniBadge', 'isFeatured', 'isDemo', 'suspended',
+          'uid', 'id', 'email', 'baustId', 'name'
+        ])
+      ) || (
+        isSignedIn() &&
+        demoEnabled() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isDemoEmailForRole(request.resource.data.role) &&
+        request.resource.data.email == request.auth.token.email &&
+        request.resource.data.uid == userId &&
         request.resource.data.id == userId &&
         request.resource.data.role == resource.data.role &&
-        request.resource.data.isVerified == resource.data.isVerified &&
-        (!('accountStatus' in request.resource.data) || request.resource.data.accountStatus == resource.data.accountStatus) &&
-        (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == resource.data.verificationStatus)
-      ) || isAdmin();
+        request.resource.data.get('isDemo', false) == true &&
+        resource.data.get('isDemo', false) == true &&
+        request.resource.data.verificationStatus == 'approved' &&
+        request.resource.data.isVerified == true &&
+        request.resource.data.get('suspended', false) == false
+      ) || (
+        isAdmin() &&
+        isValidId(userId) &&
+        resource.data.role == 'alumni' &&
+        resource.data.verificationStatus == 'approved' &&
+        !isProtectedDemoDoc(resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isFeatured', 'updatedAt'])
+      ) || (
+        isAdmin() &&
+        isValidId(userId) &&
+        resource.data.role in ['student', 'alumni'] &&
+        !isProtectedDemoDoc(resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['suspended', 'updatedAt']) &&
+        request.resource.data.suspended is bool
+      ) || (
+        isSuperAdmin() &&
+        isValidId(userId) &&
+        !isProtectedDemoDoc(resource.data) &&
+        request.resource.data.get('uid', userId) == userId &&
+        request.resource.data.get('isDemo', false) == false &&
+        !isDemoEmail(request.resource.data.get('email', ''))
+      );
 
-      allow delete: if isAdmin();
+      // Delete: Super Admin can delete non-superAdmin real users, NEVER any of the 4 protected demo users
+      allow delete: if isSuperAdmin() &&
+        isValidId(userId) &&
+        resource.data.role != 'superAdmin' &&
+        !isProtectedDemoDoc(resource.data);
     }
 
-    // Whitelisted Admins Collection
-    match /admins/{adminId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+    // 2. Verification Requests Queue
+    match /verificationRequests/{verificationId} {
+      allow get: if isSignedIn() && isValidId(verificationId) && (
+        verificationId == request.auth.uid ||
+        (resource != null && resource.data.userId == request.auth.uid) ||
+        isSuperAdmin()
+      );
+
+      allow list: if isSuperAdmin();
+
+      allow create: if (
+        isSignedIn() &&
+        !isDemoCaller() &&
+        isValidId(verificationId) &&
+        verificationId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.role in ['student', 'alumni', 'admin'] &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.get('isDemo', false) != true
+      ) || (
+        isSuperAdmin() &&
+        isValidId(verificationId) &&
+        request.resource.data.role in ['student', 'alumni', 'admin']
+      );
+
+      allow update, delete: if isSuperAdmin() && isValidId(verificationId);
     }
 
-    // Service Requests Collection (Transcripts & Certificates)
-    match /serviceRequests/{requestId} {
-      allow read: if isSignedIn() && (
-        resource.data.alumniId == request.auth.uid || isAdmin()
+    // 3. Jobs & Internships Collection
+    match /jobs/{jobId} {
+      allow get, list: if isApproved();
+
+      allow create: if isApproved() && isValidId(jobId) && (
+        ((isAlumni() || isAdmin()) && request.resource.data.postedById == request.auth.uid) ||
+        isSuperAdmin()
       );
-      allow create: if isSignedIn() && (
-        request.resource.data.alumniId == request.auth.uid || isAdmin()
+
+      allow update, delete: if isApproved() && isValidId(jobId) && (
+        resource.data.postedById == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
       );
-      allow update: if isSignedIn() && (
-        (resource.data.alumniId == request.auth.uid && request.resource.data.alumniId == request.auth.uid) ||
-        isAdmin()
-      );
-      allow delete: if isAdmin();
     }
 
-    // Mentorship Requests Collection
-    match /mentorshipRequests/{requestId} {
-      allow read: if isSignedIn() && (
+    // 4. Job Applications Collection
+    match /jobApplications/{appId} {
+      allow get, list: if isApproved() && (
+        resource.data.studentId == request.auth.uid ||
+        resource.data.postedBy == request.auth.uid ||
+        resource.data.postedById == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow create: if isApproved() && isValidId(appId) && (
+        (isStudent() &&
+          request.resource.data.studentId == request.auth.uid &&
+          request.resource.data.status == 'Applied') ||
+        isSuperAdmin()
+      );
+
+      allow update: if isApproved() && isValidId(appId) && (
+        (isStudent() &&
+          resource.data.studentId == request.auth.uid &&
+          request.resource.data.status == 'Withdrawn' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'statusHistory', 'updatedAt'])) ||
+        (isAlumni() &&
+          (resource.data.postedBy == request.auth.uid || resource.data.postedById == request.auth.uid) &&
+          request.resource.data.status in ['Applied', 'Under Review', 'Shortlisted', 'Interview', 'On Hold', 'Accepted', 'Rejected', 'Job Removed'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'statusHistory', 'updatedAt'])) ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isSuperAdmin() && isValidId(appId);
+    }
+
+    // 5. Mentorships & MentorshipRequests Collections
+    match /mentorships/{mentorshipId} {
+      allow get, list: if isApproved() && (
         resource.data.studentId == request.auth.uid ||
         resource.data.alumniId == request.auth.uid ||
-        isAdmin()
+        resource.data.mentorId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
       );
-      allow create: if isSignedIn() && (
-        request.resource.data.studentId == request.auth.uid || isAdmin()
+
+      allow create: if isApproved() && isValidId(mentorshipId) && (
+        (isStudent() &&
+          request.resource.data.studentId == request.auth.uid &&
+          request.resource.data.status == 'Pending' &&
+          request.resource.data.alumniId is string &&
+          request.resource.data.alumniId.size() > 0) ||
+        (isAlumni() && (request.resource.data.alumniId == request.auth.uid || request.resource.data.mentorId == request.auth.uid)) ||
+        isSuperAdmin()
       );
-      allow update: if isSignedIn() && (
+
+      allow update: if isApproved() && isValidId(mentorshipId) && (
+        (resource.data.studentId == request.auth.uid &&
+          request.resource.data.status in ['Cancelled', 'Completed'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'statusHistory', 'rating', 'feedback', 'updatedAt'])) ||
+        ((resource.data.alumniId == request.auth.uid || resource.data.mentorId == request.auth.uid) &&
+          request.resource.data.status in ['Accepted', 'Declined', 'On Hold', 'Completed'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'statusHistory', 'feedback', 'meetingLink', 'scheduledDate', 'scheduledTime', 'updatedAt'
+          ])) ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isSuperAdmin() && isValidId(mentorshipId);
+    }
+
+    match /mentorshipRequests/{mentorshipId} {
+      allow get, list: if isApproved() && (
         resource.data.studentId == request.auth.uid ||
         resource.data.alumniId == request.auth.uid ||
-        isAdmin()
+        resource.data.mentorId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
       );
-      allow delete: if isAdmin();
+
+      allow create: if isApproved() && isValidId(mentorshipId) && (
+        (isStudent() &&
+          request.resource.data.studentId == request.auth.uid &&
+          request.resource.data.status == 'Pending' &&
+          request.resource.data.alumniId is string &&
+          request.resource.data.alumniId.size() > 0) ||
+        (isAlumni() && (request.resource.data.alumniId == request.auth.uid || request.resource.data.mentorId == request.auth.uid)) ||
+        isSuperAdmin()
+      );
+
+      allow update: if isApproved() && isValidId(mentorshipId) && (
+        (resource.data.studentId == request.auth.uid &&
+          request.resource.data.status in ['Cancelled', 'Completed'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'statusHistory', 'rating', 'feedback', 'updatedAt'])) ||
+        ((resource.data.alumniId == request.auth.uid || resource.data.mentorId == request.auth.uid) &&
+          request.resource.data.status in ['Accepted', 'Declined', 'On Hold', 'Completed'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'statusHistory', 'feedback', 'meetingLink', 'scheduledDate', 'scheduledTime', 'updatedAt'
+          ])) ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isSuperAdmin() && isValidId(mentorshipId);
     }
 
-    // Verifications Queue Collection
-    match /verifications/{verificationId} {
-      allow get: if isSignedIn() && (
-        resource.data.userId == request.auth.uid || isAdmin()
+    // 5b. Knowledge-Sharing Sessions / Webinars (FR-13)
+    match /knowledgeSessions/{sessionId} {
+      allow get, list: if isApproved();
+
+      allow create: if isApproved() && isValidId(sessionId) && (
+        ((isAlumni() || isAdmin()) && request.resource.data.hostId == request.auth.uid) ||
+        isSuperAdmin()
       );
-      allow list: if isSignedIn();
-      allow create: if isSignedIn() && (
-        request.resource.data.userId == request.auth.uid || isAdmin()
+
+      allow update: if isApproved() && isValidId(sessionId) && (
+        resource.data.hostId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin() ||
+        // Approved members can RSVP / un-RSVP via registeredIds only
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registeredIds', 'updatedAt'])
       );
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+
+      allow delete: if isApproved() && isValidId(sessionId) && (
+        resource.data.hostId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
     }
 
-    // Test connection document
-    match /test/{docId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+    // 5c. Mentorship Appointment Slots (FR-14 atomic transaction booking)
+    match /appointments/{slotId} {
+      allow get, list: if isApproved();
+
+      allow create: if isApproved() && isValidId(slotId) && (
+        (isAlumni() && request.resource.data.alumniId == request.auth.uid && request.resource.data.status == 'available') ||
+        isSuperAdmin()
+      );
+
+      allow update: if isApproved() && isValidId(slotId) && (
+        // Alumni owner can manage or cancel their slot
+        resource.data.alumniId == request.auth.uid ||
+        isSuperAdmin() ||
+        // Student booking an available slot atomically
+        (isStudent() &&
+          resource.data.status == 'available' &&
+          request.resource.data.status == 'booked' &&
+          request.resource.data.bookedByStudentId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'bookedByStudentId', 'bookedByStudentName', 'bookedByStudentEmail', 'bookingNote', 'updatedAt'
+          ])) ||
+        // Student cancelling their own booking
+        (isStudent() &&
+          resource.data.bookedByStudentId == request.auth.uid &&
+          request.resource.data.status == 'available' &&
+          request.resource.data.bookedByStudentId == '' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'bookedByStudentId', 'bookedByStudentName', 'bookedByStudentEmail', 'bookingNote', 'updatedAt'
+          ]))
+      );
+
+      allow delete: if isApproved() && isValidId(slotId) && (
+        resource.data.alumniId == request.auth.uid || isSuperAdmin()
+      );
+    }
+
+    // 5d. CV Reviews (FR-16)
+    match /cvReviews/{reviewId} {
+      allow get, list: if isApproved() && (
+        resource.data.studentId == request.auth.uid ||
+        resource.data.mentorId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow create: if isApproved() && isValidId(reviewId) && (
+        (isStudent() && request.resource.data.studentId == request.auth.uid) ||
+        isSuperAdmin()
+      );
+
+      allow update: if isApproved() && isValidId(reviewId) && (
+        resource.data.mentorId == request.auth.uid ||
+        resource.data.studentId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isSuperAdmin() && isValidId(reviewId);
+    }
+
+    // 5e. Evaluations & Ratings (FR-16)
+    match /evaluations/{evalId} {
+      allow get, list: if isApproved();
+
+      allow create: if isApproved() && isValidId(evalId) && (
+        (isStudent() &&
+          request.resource.data.studentId == request.auth.uid &&
+          request.resource.data.rating >= 1 &&
+          request.resource.data.rating <= 5) ||
+        isSuperAdmin()
+      );
+
+      allow update, delete: if isSuperAdmin() && isValidId(evalId);
+    }
+
+    function isConvParticipant(data) {
+      return data != null && (
+        ('participantIds' in data && data.participantIds is list && request.auth.uid in data.participantIds) ||
+        ('participants' in data && data.participants is list && request.auth.uid in data.participants)
+      );
+    }
+
+    // 6. Real-Time Conversations & Messages Subcollection (FR-11, #63)
+    match /conversations/{convId} {
+      allow get, list: if isApproved() && (
+        isConvParticipant(resource.data) ||
+        isSuperAdmin()
+      );
+
+      allow create: if isApproved() && isValidId(convId) && (
+        ('participantIds' in request.resource.data &&
+          request.resource.data.participantIds is list &&
+          request.auth.uid in request.resource.data.participantIds &&
+          request.resource.data.participantIds.size() >= 2) ||
+        ('participants' in request.resource.data &&
+          request.resource.data.participants is list &&
+          request.auth.uid in request.resource.data.participants &&
+          request.resource.data.participants.size() >= 2)
+      );
+
+      allow update: if isApproved() && isValidId(convId) && (
+        (isConvParticipant(resource.data) &&
+          request.resource.data.get('participantIds', []) == resource.data.get('participantIds', [])) ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isSuperAdmin() && isValidId(convId);
+
+      match /messages/{msgId} {
+        allow get, list: if isApproved() && isValidId(convId) && (
+          isConvParticipant(get(/databases/$(database)/documents/conversations/$(convId)).data) ||
+          isSuperAdmin()
+        );
+
+        allow create: if isApproved() && isValidId(convId) && isValidId(msgId) && (
+          request.resource.data.senderId == request.auth.uid &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 2000 &&
+          isConvParticipant(get(/databases/$(database)/documents/conversations/$(convId)).data)
+        );
+
+        allow update: if (
+          isApproved() &&
+          isValidId(convId) &&
+          isValidId(msgId) &&
+          isConvParticipant(get(/databases/$(database)/documents/conversations/$(convId)).data) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
+        ) || isSuperAdmin();
+
+        allow delete: if isSuperAdmin();
+      }
+    }
+
+    // 7. Events & Summits Collection
+    match /events/{eventId} {
+      allow get, list: if isApproved();
+
+      allow create: if isApproved() && isValidId(eventId) && (
+        ((isAlumni() || isAdmin()) && request.resource.data.organizerId == request.auth.uid) ||
+        isSuperAdmin()
+      );
+
+      allow update: if isApproved() && isValidId(eventId) && (
+        resource.data.organizerId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin() ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attendeeIds', 'updatedAt'])
+      );
+
+      allow delete: if isApproved() && isValidId(eventId) && (
+        resource.data.organizerId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+    }
+
+    // 8. Announcements Collection
+    match /announcements/{announcementId} {
+      allow get, list: if isApproved();
+
+      allow create, update, delete: if isApproved() && isValidId(announcementId) && (
+        isAdmin() || isSuperAdmin()
+      );
+    }
+
+    // 9. Alumni Contributions / Giving Back Collection
+    match /contributions/{contributionId} {
+      allow get, list: if isApproved() && (isAlumni() || isAdmin() || isSuperAdmin());
+
+      allow create: if isApproved() && isValidId(contributionId) && (
+        (isAlumni() && request.resource.data.alumniId == request.auth.uid) ||
+        isSuperAdmin()
+      );
+
+      allow update: if isApproved() && isValidId(contributionId) && (
+        (isAlumni() && resource.data.alumniId == request.auth.uid) ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isSuperAdmin() && isValidId(contributionId);
+    }
+
+    // 10. Document Requests Collection (FR-17, FR-18, Admin-Controlled 6-Stage)
+    match /documentRequests/{requestId} {
+      allow get, list: if isApproved() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow create: if isApproved() && isValidId(requestId) && (
+        (request.resource.data.userId == request.auth.uid &&
+          request.resource.data.status in ['submitted', 'Submitted', 'pending', 'Pending'] &&
+          request.resource.data.get('currentStageIndex', 1) == 1 &&
+          request.resource.data.get('currentStageKey', 'payment_verified') == 'payment_verified') ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow update: if isApproved() && isValidId(requestId) && (
+        (resource.data.userId == request.auth.uid &&
+          request.resource.data.userId == resource.data.userId &&
+          resource.data.get('currentStageIndex', 1) <= 1 &&
+          !(resource.data.status in ['rejected', 'Rejected', 'cancelled', 'Cancelled', 'delivered', 'Delivered']) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'stages', 'currentStageIndex', 'currentStageKey', 'deliveryInfo',
+            'statusHistory', 'adminRemarks', 'finalDeliverable', 'deliveryUrl',
+            'pickupInfo', 'rejectionReason', 'rejectionMessage', 'actionRequiredReason',
+            'assignedStaffId', 'assignedStaffName', 'payment'
+          ]) &&
+          request.resource.data.status in ['cancelled', 'Cancelled']) ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isSuperAdmin() && isValidId(requestId);
+    }
+
+    // 11. Notifications Rule Engine Collection (#45)
+    match /notifications/{notifId} {
+      allow get, list: if isApproved() && (
+        resource.data.recipientId == request.auth.uid ||
+        resource.data.recipientId == 'ALL_USERS' ||
+        (resource.data.recipientId == 'ALL_STUDENTS' && isStudent()) ||
+        (resource.data.recipientId == 'ALL_ALUMNI' && isAlumni()) ||
+        (resource.data.recipientId == 'ALL_ADMINS' && (isAdmin() || isSuperAdmin())) ||
+        (resource.data.recipientId == 'ALL_SUPERADMINS' && isSuperAdmin())
+      );
+
+      // Approved users can trigger cross-user workflow notifications;
+      // newly registering users can trigger a verification alert to ALL_SUPERADMINS.
+      allow create: if isValidId(notifId) && (
+        (isApproved() &&
+          request.resource.data.recipientId is string &&
+          request.resource.data.title is string &&
+          request.resource.data.read == false) ||
+        (isSignedIn() &&
+          request.resource.data.recipientId == 'ALL_SUPERADMINS' &&
+          request.resource.data.type == 'verification' &&
+          request.resource.data.itemId == request.auth.uid &&
+          request.resource.data.read == false)
+      );
+
+      allow update: if isApproved() && isValidId(notifId) && (
+        (
+          (
+            resource.data.recipientId == request.auth.uid ||
+            resource.data.recipientId == 'ALL_USERS' ||
+            (resource.data.recipientId == 'ALL_STUDENTS' && isStudent()) ||
+            (resource.data.recipientId == 'ALL_ALUMNI' && isAlumni()) ||
+            (resource.data.recipientId == 'ALL_ADMINS' && (isAdmin() || isSuperAdmin())) ||
+            (resource.data.recipientId == 'ALL_SUPERADMINS' && isSuperAdmin())
+          ) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt'])
+        ) || (
+          resource.data.type == 'chat' &&
+          request.resource.data.type == 'chat' &&
+          request.resource.data.senderId == request.auth.uid &&
+          request.resource.data.recipientId == resource.data.recipientId &&
+          request.resource.data.read == false &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title', 'message', 'link', 'read', 'createdAt', 'updatedAt', 'senderId', 'refId', 'itemId'
+          ])
+        )
+      );
+
+      allow delete: if isApproved() && isValidId(notifId) && (
+        resource.data.recipientId == request.auth.uid || isSuperAdmin()
+      );
+    }
+
+    // 12. User Reports & Moderation Queue (FR-19)
+    match /reports/{reportId} {
+      allow get, list: if isApproved() && (
+        resource.data.reporterId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow create: if isApproved() && isValidId(reportId) && (
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.status == 'Pending'
+      );
+
+      allow update: if isApproved() && isValidId(reportId) && (
+        isAdmin() || isSuperAdmin()
+      );
+
+      allow delete: if isSuperAdmin() && isValidId(reportId);
+    }
+
+    // 13. Activity Audit Logs
+    match /activityLogs/{logId} {
+      allow get, list: if isSuperAdmin();
+      allow create: if isApproved() && isValidId(logId);
+      allow update, delete: if false;
+    }
+
+    // 14. System Settings
+    match /systemSettings/{settingId} {
+      allow get, list: if isApproved();
+      allow write: if isSuperAdmin() && isValidId(settingId);
     }
   }
 }

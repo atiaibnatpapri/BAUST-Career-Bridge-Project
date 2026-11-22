@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Users, 
   X, 
@@ -16,6 +16,7 @@ import {
   Send 
 } from 'lucide-react';
 import { VacancyApplication } from '../../types/admindesk';
+import { downloadTextDocument } from '../../utils/download';
 
 interface ApplicationDetailModalProps {
   isOpen: boolean;
@@ -43,6 +44,14 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
   const [interviewTime, setInterviewTime] = useState('11:00 AM');
   const [venueOrLink, setVenueOrLink] = useState('Conference Room, Academic Building 1 (BAUST Saidpur)');
   const [instructions, setInstructions] = useState('Please bring original transcripts and prepare a 15-minute presentation.');
+  const [cvDownloaded, setCvDownloaded] = useState(false);
+
+  useEffect(() => {
+    if (!application) return;
+    setSelectedStatus(application.status);
+    setAdminNotes(application.adminNotes || '');
+    setCvDownloaded(false);
+  }, [application?.id, application?.status, application?.adminNotes]);
 
   if (!isOpen || !application) return null;
 
@@ -132,10 +141,27 @@ export const ApplicationDetailModal: React.FC<ApplicationDetailModalProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => alert(`Simulating download of ${application.cvFileName}`)}
-              className="text-xs text-navy font-bold hover:underline"
+              onClick={() => {
+                const baseName = application.cvFileName.replace(/\.[^.]+$/, '');
+                downloadTextDocument(
+                  `${baseName}_Applicant_Profile.txt`,
+                  `BAUST Career Bridge — Applicant CV Summary\n` +
+                    `===========================================\n` +
+                    `Applicant: ${application.alumniName}\n` +
+                    `Position: ${application.vacancyTitle}\n` +
+                    `Department: ${application.department} · ${application.batch}\n` +
+                    `CGPA: ${application.cgpa.toFixed(2)} / 4.00\n` +
+                    `Applied On: ${application.appliedAt}\n` +
+                    `File Reference: ${application.cvFileName}\n\n` +
+                    `Experience Summary:\n${application.experience}\n\n` +
+                    `Cover Letter:\n${application.coverLetter}\n`
+                );
+                setCvDownloaded(true);
+                setTimeout(() => setCvDownloaded(false), 2500);
+              }}
+              className="text-xs text-navy font-bold hover:underline cursor-pointer"
             >
-              Download CV
+              {cvDownloaded ? 'CV Summary Downloaded' : 'Download CV'}
             </button>
           </div>
 

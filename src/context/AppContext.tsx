@@ -3,32 +3,72 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { 
-  UserRole, 
-  Language, 
-  AlumniProfile, 
-  StudentProfile, 
-  ServiceRequest, 
-  MentorshipRequest, 
-  VerificationItem, 
-  ChatMessage, 
-  Conversation, 
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import {
+  UserRole,
+  Language,
+  AlumniProfile,
+  StudentProfile,
+  ServiceRequest,
+  MentorshipRequest,
+  VerificationItem,
+  ChatMessage,
+  Conversation,
+  ConversationSource,
   Announcement,
-  Notification 
+  Notification,
+  Department,
 } from '../types';
-import { mockAlumni } from '../data/alumni';
-import { mockStudents } from '../data/students';
-import { mockServiceRequests } from '../data/serviceRequests';
-import { mockMentorshipRequests } from '../data/mentorshipSessions';
-import { mockVerifications } from '../data/verifications';
-import { mockConversations, mockMessages } from '../data/chats';
-import { mockAnnouncements } from '../data/announcements';
 import { translations } from '../data/translations';
-import { useAuth } from './AuthContext';
-import { collection, onSnapshot, doc, updateDoc, getDoc, getDocFromServer } from 'firebase/firestore';
-import { auth, db } from '../services/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { useAuth, normalizeProfile, UserProfileData } from './AuthContext';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  DocumentData,
+  getDoc,
+  onSnapshot,
+  query,
+  QueryDocumentSnapshot,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch,
+} from 'firebase/firestore';
+import { auth, db, isTransientFirestoreError, subscribeFirestoreSyncState } from '../firebase';
+import { toList, safeArray } from '../utils/utils';
+import { isDemoAccountEmail } from '../config/demoConfig';
+import {
+  createFirestoreMentorship,
+  logPortalActivity,
+  subscribeFirestoreMentorships,
+  subscribeFirestoreUsers,
+  tsToMillis,
+  updateFirestoreMentorship,
+} from '../services/firestorePortal';
+import {
+  clearConversationUnread,
+  fetchEarlierConversationMessages,
+  getDocumentRequestLink,
+  markNotificationReadFirestore,
+  openOrCreateFirestoreConversation,
+  sendFirestoreMessage,
+  subscribeConversationMessages,
+  subscribeConversations,
+  subscribeNotifications,
+  triggerNotification,
+} from '../services/careerBridgeService';
+import {
+  buildConversationDocId,
+  buildInitialDocumentStages,
+  DOC_STAGES,
+  isVerifiedVisibleAlumni,
+  normalizeDepartment,
+  normalizeStageIndexFromStatus,
+  sanitizeUserForViewer,
+} from '../constants/baustDataModel';
 
 export interface ToastMessage {
   id: string;
@@ -37,698 +77,1494 @@ export interface ToastMessage {
   message?: string;
 }
 
+interface StaffUserShape {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'superAdmin';
+  avatar: string;
+  department: string;
+  batch: string;
+  office?: string;
+  isVerified?: boolean;
+  isDemo?: boolean;
+  verificationStatus?: 'pending' | 'approved' | 'rejected';
+}
+
 interface AppContextType {
   role: UserRole;
-  setRole: (role: UserRole) => void;
-  currentUser: StudentProfile | AlumniProfile | { id: string; name: string; email: string; role: 'admin'; avatar: string; department: string; batch: string };
+  currentUser: StudentProfile | AlumniProfile | StaffUserShape;
   language: Language;
   setLanguage: (lang: Language) => void;
   t: typeof translations['en'];
-  
-  // Data States
+
+  // Live Firestore Data States (#63: single source of truth)
+  allUsers: UserProfileData[];
+  usersLoading: boolean;
   alumniList: AlumniProfile[];
   studentList: StudentProfile[];
   serviceRequests: ServiceRequest[];
   mentorshipRequests: MentorshipRequest[];
   verifications: VerificationItem[];
+  verificationsLoading: boolean;
   conversations: Conversation[];
+  conversationsLoading: boolean;
+  isReconnecting: boolean;
   messages: Record<string, ChatMessage[]>;
+  hasMoreMessages: Record<string, boolean>;
+  loadingEarlierMessages: Record<string, boolean>;
   announcements: Announcement[];
   notifications: Notification[];
 
   // Actions
-  addServiceRequest: (newReq: Omit<ServiceRequest, 'id' | 'submittedAt' | 'timeline' | 'status' | 'estimatedDelivery'>) => void;
-  updateServiceRequestStatus: (id: string, status: ServiceRequest['status'], remarks?: string, trackingNumber?: string) => void;
-  
-  requestMentorship: (req: Omit<MentorshipRequest, 'id' | 'createdAt' | 'status'>) => void;
-  respondMentorship: (id: string, action: 'Accepted' | 'Declined', feedback?: string, meetingLink?: string) => void;
-  
-  approveVerification: (id: string) => Promise<boolean>;
-  rejectVerification: (id: string, reason: string) => Promise<boolean>;
-  
-  sendMessage: (conversationId: string, text: string, attachment?: ChatMessage['attachment']) => void;
-  
+  addServiceRequest: (
+    newReq: Omit<ServiceRequest, 'id' | 'submittedAt' | 'timeline' | 'status' | 'estimatedDelivery'>
+  ) => void;
+  updateServiceRequestStatus: (
+    id: string,
+    status: ServiceRequest['status'],
+    remarks?: string,
+    trackingNumber?: string
+  ) => void;
+
+  requestMentorship: (
+    req: Omit<MentorshipRequest, 'id' | 'createdAt' | 'status'>
+  ) => Promise<{ success: boolean; error?: string }>;
+  respondMentorship: (
+    id: string,
+    action: 'Accepted' | 'Declined' | 'On Hold' | 'Cancelled',
+    feedback?: string,
+    meetingLink?: string
+  ) => Promise<void>;
+
+  watchConversationMessages: (conversationId: string | null) => void;
+  loadEarlierMessages: (conversationId: string) => Promise<void>;
+  markThreadRead: (conversationId: string) => void;
+  sendMessage: (
+    conversationId: string,
+    text: string,
+    attachment?: ChatMessage['attachment'],
+    recipientIdOverride?: string
+  ) => Promise<void>;
+  openOrCreateConversation: (participantId: string, source?: ConversationSource) => Promise<string | null>;
+
+  approveVerification: (userId: string) => Promise<boolean>;
+  rejectVerification: (userId: string, reason: string) => Promise<boolean>;
+
   addAnnouncement: (announcement: Omit<Announcement, 'id' | 'date'>) => void;
   deleteAnnouncement: (id: string) => void;
-  
+
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
-  
+
   toasts: ToastMessage[];
   addToast: (type: ToastMessage['type'], title: string, message?: string) => void;
   removeToast: (id: string) => void;
-  
-  // Mentor settings for alumni
+
   updateAlumniMentorSettings: (available: boolean, slots: string[], topics: any[]) => void;
   updateStudentProfile: (updatedData: Partial<StudentProfile>) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const ADMIN_USER = {
-  id: 'admin-1',
-  name: 'Prof. Dr. Registrar Office',
-  email: 'registrar@baust.edu.bd',
-  role: 'admin' as const,
-  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  department: 'Administration' as any,
-  batch: 'Registrar & Student Affairs',
+const FALLBACK_GUEST_USER: StaffUserShape = {
+  id: '',
+  name: '',
+  email: '',
+  role: 'student' as any,
+  avatar: '',
+  department: '',
+  batch: '',
+  isVerified: false,
+  verificationStatus: 'pending',
 };
 
+function formatSubmittedTimestamp(raw: any): { text: string; millis: number } {
+  if (!raw) {
+    return { text: 'Just now', millis: Date.now() };
+  }
+  if (typeof raw?.toDate === 'function') {
+    const d = raw.toDate() as Date;
+    return {
+      text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      millis: d.getTime(),
+    };
+  }
+  if (typeof raw === 'string') {
+    const parsed = Date.parse(raw);
+    return {
+      text: raw,
+      millis: Number.isNaN(parsed) ? Date.now() : parsed,
+    };
+  }
+  return { text: 'Just now', millis: Date.now() };
+}
+
+function normalizeVerificationStatus(raw: any): VerificationItem['status'] {
+  const s = String(raw || 'pending').toLowerCase().trim();
+  if (s === 'approved') return 'Approved';
+  if (s === 'rejected') return 'Rejected';
+  return 'Pending';
+}
+
+function toAlumniProfile(u: UserProfileData, viewerUid?: string, viewerRole?: UserRole): AlumniProfile {
+  const safe = sanitizeUserForViewer(u, viewerUid, viewerRole) || u;
+  return {
+    id: safe.id || safe.uid || '',
+    name: safe.name || 'BAUST Alumni',
+    email: safe.email || '',
+    role: 'alumni',
+    avatar: safe.avatar || '',
+    department: normalizeDepartment(safe.department),
+    batch: safe.batch || '',
+    phone: safe.phone || '',
+    bio: safe.bio || '',
+    designation: safe.designation || 'BAUST Alumni',
+    company: safe.company || 'Partner Organization',
+    sector: (safe.sector as any) || 'Private',
+    location: safe.location || 'Bangladesh',
+    passingYear: typeof safe.passingYear === 'number' ? safe.passingYear : 2020,
+    linkedin: safe.linkedin || '',
+    github: safe.github || '',
+    skills: toList(safe.skills),
+    mentoringAvailable: Boolean(safe.mentoringAvailable),
+    mentorshipTopics: toList(safe.mentorshipTopics) as any,
+    availableSlots: toList(safe.availableSlots),
+    experienceTimeline: safeArray(safe.experienceTimeline),
+    education: safeArray(safe.education),
+    achievements: toList(safe.achievements),
+    totalMentees: typeof safe.totalMentees === 'number' ? safe.totalMentees : 0,
+    rating: typeof safe.rating === 'number' ? safe.rating : 0,
+    verifiedAlumniBadge: Boolean(safe.verifiedAlumniBadge),
+    isFeatured: Boolean(safe.isFeatured),
+    isVerified: Boolean(safe.isVerified),
+    verificationStatus: safe.verificationStatus,
+    hideEmail: Boolean(safe.hideEmail),
+    hidePhone: Boolean(safe.hidePhone),
+    profileVisibility: safe.profileVisibility === 'private' ? 'private' : 'public',
+  };
+}
+
+function toStudentProfile(u: UserProfileData, viewerUid?: string, viewerRole?: UserRole): StudentProfile {
+  const safe = sanitizeUserForViewer(u, viewerUid, viewerRole) || u;
+  return {
+    id: safe.id || safe.uid || '',
+    name: safe.name || 'BAUST Student',
+    email: safe.email || '',
+    role: 'student',
+    avatar: safe.avatar || '',
+    department: normalizeDepartment(safe.department),
+    batch: safe.batch || '',
+    phone: safe.phone || '',
+    bio: safe.bio || '',
+    studentId: safe.studentId || safe.baustId || '',
+    currentSemester: safe.currentSemester || 'Level-1, Term-I',
+    cgpa: typeof safe.cgpa === 'number' ? safe.cgpa : 0,
+    interests: toList(safe.interests),
+    careerGoal: safe.careerGoal || '',
+    cvFileName: safe.cvFileName || '',
+    skills: toList(safe.skills),
+    isVerified: Boolean(safe.isVerified),
+    verificationStatus: safe.verificationStatus,
+    hideEmail: Boolean(safe.hideEmail),
+    hidePhone: Boolean(safe.hidePhone),
+    profileVisibility: safe.profileVisibility === 'private' ? 'private' : 'public',
+  };
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { userProfile, updateUserProfile: updateFirebaseUserProfile } = useAuth();
+  const {
+    firebaseUser,
+    userProfile,
+    loading: authLoading,
+    updateUserProfile: updateFirebaseUserProfile,
+    registerSessionCleanup,
+  } = useAuth();
 
-  // Initialize role from logged-in profile or fallback to localStorage / student
-  const [role, setRoleState] = useState<UserRole>(() => {
-    const saved = localStorage.getItem('baust_demo_role');
-    return (saved as UserRole) || 'student';
-  });
-
-  // Keep role in sync with logged-in user profile
-  useEffect(() => {
-    if (userProfile?.role) {
-      setRoleState(userProfile.role);
-    }
-  }, [userProfile?.role]);
+  const role: UserRole = userProfile?.role ?? 'student';
 
   const [language, setLanguageState] = useState<Language>(() => {
     const saved = localStorage.getItem('baust_lang');
-    return (saved as Language) || 'en';
+    return saved === 'bn' ? 'bn' : 'en';
   });
 
-  // Local state initialized from mock data or local storage
-  const [alumniList, setAlumniList] = useState<AlumniProfile[]>(() => {
-    const saved = localStorage.getItem('baust_alumni');
-    return saved ? JSON.parse(saved) : mockAlumni;
-  });
-
-  const [studentList, setStudentList] = useState<StudentProfile[]>(() => {
-    const saved = localStorage.getItem('baust_students');
-    return saved ? JSON.parse(saved) : mockStudents;
-  });
-
-  const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>(() => {
-    const saved = localStorage.getItem('baust_service_requests');
-    return saved ? JSON.parse(saved) : mockServiceRequests;
-  });
-
-  const [mentorshipRequests, setMentorshipRequests] = useState<MentorshipRequest[]>(() => {
-    const saved = localStorage.getItem('baust_mentorships');
-    return saved ? JSON.parse(saved) : mockMentorshipRequests;
-  });
-
-  const [verifications, setVerifications] = useState<VerificationItem[]>(() => {
-    const saved = localStorage.getItem('baust_verifications');
-    return saved ? JSON.parse(saved) : mockVerifications;
-  });
-
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
-    const saved = localStorage.getItem('baust_conversations');
-    return saved ? JSON.parse(saved) : mockConversations;
-  });
-
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>(() => {
-    const saved = localStorage.getItem('baust_messages');
-    return saved ? JSON.parse(saved) : mockMessages;
-  });
-
-  const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
-    const saved = localStorage.getItem('baust_announcements');
-    return saved ? JSON.parse(saved) : mockAnnouncements;
-  });
-
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: 'notif-1',
-      title: 'Mentorship Confirmed',
-      message: 'Kazi Farhan Kabir accepted your CV Review session for Oct 30, 7:00 PM.',
-      timestamp: '15 mins ago',
-      read: false,
-      type: 'mentorship',
-      link: '/student/mentorship',
-    },
-    {
-      id: 'notif-2',
-      title: 'Document Ready for Pickup',
-      message: 'Official Academic Transcript (REQ-2026-0891) is ready at the Exam Controller Office.',
-      timestamp: '2 hours ago',
-      read: false,
-      type: 'service',
-      link: '/alumni/services',
-    },
-    {
-      id: 'notif-3',
-      title: 'New Event Notice',
-      message: 'BAUST Annual Career & Tech Expo 2026 announced for November 15-16.',
-      timestamp: '1 day ago',
-      read: true,
-      type: 'announcement',
-    }
-  ]);
-
+  const [allUsers, setAllUsers] = useState<UserProfileData[]>([]);
+  const [usersLoading, setUsersLoading] = useState<boolean>(false);
+  const [alumniList, setAlumniList] = useState<AlumniProfile[]>([]);
+  const [studentList, setStudentList] = useState<StudentProfile[]>([]);
+  const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
+  const [mentorshipRequests, setMentorshipRequests] = useState<MentorshipRequest[]>([]);
+  const [verifications, setVerifications] = useState<VerificationItem[]>([]);
+  const [verificationsLoading, setVerificationsLoading] = useState<boolean>(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationsLoading, setConversationsLoading] = useState<boolean>(false);
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
+  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [hasMoreMessages, setHasMoreMessages] = useState<Record<string, boolean>>({});
+  const [loadingEarlierMessages, setLoadingEarlierMessages] = useState<Record<string, boolean>>({});
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [localReadNotifIds, setLocalReadNotifIds] = useState<Record<string, boolean>>({});
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Sync state to localStorage
+  const msgUnsubRef = useRef<(() => void) | null>(null);
+  const activeConvIdRef = useRef<string | null>(null);
+  const oldestSnapRef = useRef<Record<string, QueryDocumentSnapshot<DocumentData> | null>>({});
+  const olderMessagesRef = useRef<Record<string, ChatMessage[]>>({});
+
+  const isApprovedSession =
+    !authLoading &&
+    Boolean(firebaseUser) &&
+    userProfile?.verificationStatus === 'approved' &&
+    !userProfile?.suspended;
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const addToast = useCallback(
+    (type: ToastMessage['type'], title: string, message?: string) => {
+      const id = 'toast-' + Date.now() + Math.random().toString(36).substring(2, 5);
+      setToasts((prev) => [...prev, { id, type, title, message }]);
+      setTimeout(() => {
+        removeToast(id);
+      }, 4500);
+    },
+    [removeToast]
+  );
+
+  // Live Firestore / Network sync state
   useEffect(() => {
-    localStorage.setItem('baust_demo_role', role);
-  }, [role]);
+    return subscribeFirestoreSyncState((reconnecting) => {
+      setIsReconnecting(reconnecting);
+    });
+  }, []);
+
+  // Global Unhandled Promise Rejection Handler (#34) — ignores transient offline/WebSocket blips
+  useEffect(() => {
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      if (isTransientFirestoreError(event.reason)) {
+        return;
+      }
+      console.error('Unhandled async promise rejection:', event.reason);
+      const msg =
+        event.reason?.message ||
+        (typeof event.reason === 'string' ? event.reason : 'Unexpected background operation error.');
+      addToast('error', language === 'bn' ? 'অপ্রত্যাশিত ত্রুটি' : 'Unexpected Error', String(msg).slice(0, 140));
+    };
+    window.addEventListener('unhandledrejection', onUnhandled);
+    return () => window.removeEventListener('unhandledrejection', onUnhandled);
+  }, [addToast, language]);
+
+  // Reset transient state on logout
+  useEffect(() => {
+    return registerSessionCleanup(() => {
+      if (msgUnsubRef.current) {
+        msgUnsubRef.current();
+        msgUnsubRef.current = null;
+      }
+      activeConvIdRef.current = null;
+      oldestSnapRef.current = {};
+      olderMessagesRef.current = {};
+      setAllUsers([]);
+      setUsersLoading(false);
+      setAlumniList([]);
+      setStudentList([]);
+      setServiceRequests([]);
+      setMentorshipRequests([]);
+      setVerifications([]);
+      setVerificationsLoading(false);
+      setConversations([]);
+      setConversationsLoading(false);
+      setMessages({});
+      setHasMoreMessages({});
+      setLoadingEarlierMessages({});
+      setAnnouncements([]);
+      setNotifications([]);
+      setLocalReadNotifIds({});
+      setToasts([]);
+    });
+  }, [registerSessionCleanup]);
 
   useEffect(() => {
     localStorage.setItem('baust_lang', language);
   }, [language]);
 
+  // 1. Real-time Firestore Users listener (for approved signed-in users) -> Single Source of Truth (#42, #50, #63)
   useEffect(() => {
-    localStorage.setItem('baust_service_requests', JSON.stringify(serviceRequests));
-  }, [serviceRequests]);
-
-  useEffect(() => {
-    localStorage.setItem('baust_mentorships', JSON.stringify(mentorshipRequests));
-  }, [mentorshipRequests]);
-
-  useEffect(() => {
-    localStorage.setItem('baust_verifications', JSON.stringify(verifications));
-  }, [verifications]);
-
-  // Real-time synchronization with Firestore /verifications
-  useEffect(() => {
-    try {
-      const verificationsCol = collection(db, 'verifications');
-      const unsubscribe = onSnapshot(
-        verificationsCol,
-        (snapshot) => {
-          const firestoreItems: VerificationItem[] = [];
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            const rawStatus = data.status || (data.accountStatus === 'approved' ? 'Approved' : 'Pending');
-            const status: VerificationItem['status'] =
-              rawStatus === 'Approved' || rawStatus === 'approved'
-                ? 'Approved'
-                : rawStatus === 'Rejected' || rawStatus === 'rejected'
-                ? 'Rejected'
-                : 'Pending';
-
-            firestoreItems.push({
-              id: docSnap.id,
-              userId: data.userId || docSnap.id.replace('ver-', ''),
-              name: data.name || 'Applicant',
-              email: data.email || '',
-              role: data.role || 'student',
-              baustId: data.baustId || data.studentId || '1902041',
-              department: data.department || 'CSE',
-              batch: data.batch || '19th Batch',
-              passingYear: data.passingYear,
-              submittedAt: data.submittedAt || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-              documentType: data.documentType || `${data.role === 'alumni' ? 'Degree Certificate' : 'Student ID Card'} Verification`,
-              documentPreviewUrl: data.documentPreviewUrl || 'https://images.unsplash.com/photo-1589330694653-dad6d3240a2b?w=600&auto=format&fit=crop&q=80',
-              status,
-              accountStatus: (data.accountStatus || (status === 'Approved' ? 'approved' : status === 'Rejected' ? 'rejected' : 'pending')) as any,
-              rejectionReason: data.rejectionReason,
-              reviewedAt: data.reviewedAt,
-              reviewedBy: data.reviewedBy,
-            });
-          });
-
-          if (firestoreItems.length > 0) {
-            setVerifications((prev) => {
-              const firestoreIds = new Set(firestoreItems.map((f) => f.id));
-              const existingUnmatched = prev.filter((p) => !firestoreIds.has(p.id));
-              const combined = [...firestoreItems, ...existingUnmatched];
-              localStorage.setItem('baust_verifications', JSON.stringify(combined));
-              return combined;
-            });
-          }
-        },
-        (error) => {
-          console.warn('Firestore verifications subscription note:', error.message);
-        }
-      );
-
-      return () => unsubscribe();
-    } catch (err) {
-      console.warn('Error attaching Firestore listener:', err);
+    if (!isApprovedSession || !firebaseUser) {
+      setAllUsers([]);
+      setAlumniList([]);
+      setStudentList([]);
+      setUsersLoading(false);
+      return;
     }
-  }, []);
 
+    setUsersLoading(true);
+    return subscribeFirestoreUsers(
+      (rawUsers) => {
+        const normalized = rawUsers.map((raw) =>
+          normalizeProfile(raw.id || raw.uid, raw, raw.email)
+        );
+        setAllUsers(normalized);
+
+        const visibleAlumni = normalized
+          .filter((u) => isVerifiedVisibleAlumni(u))
+          .map((u) => toAlumniProfile(u, firebaseUser.uid, userProfile?.role));
+        setAlumniList(visibleAlumni);
+
+        const visibleStudents = normalized
+          .filter((u) => u.role === 'student' && u.verificationStatus === 'approved' && !u.suspended)
+          .map((u) => toStudentProfile(u, firebaseUser.uid, userProfile?.role));
+        setStudentList(visibleStudents);
+        setUsersLoading(false);
+      },
+      (err) => {
+        console.warn('Firestore users listener warning:', err.message);
+        setUsersLoading(false);
+      }
+    );
+  }, [isApprovedSession, firebaseUser, userProfile?.role]);
+
+  // 2. Real-time Firestore Notifications Rule Engine (#45)
   useEffect(() => {
-    localStorage.setItem('baust_announcements', JSON.stringify(announcements));
-  }, [announcements]);
+    if (!isApprovedSession || !firebaseUser || !userProfile) {
+      setNotifications([]);
+      return;
+    }
 
+    return subscribeNotifications(
+      firebaseUser.uid,
+      userProfile.role,
+      (items) => {
+        setNotifications(
+          items.map((n) => (localReadNotifIds[n.id] ? { ...n, read: true } : n))
+        );
+      },
+      (err) => {
+        console.warn('Notifications listener warning:', err.message);
+      }
+    );
+  }, [isApprovedSession, firebaseUser, userProfile?.role, localReadNotifIds]);
+
+  // 3. Real-time Firestore Conversations listener (FR-11, Part 3)
   useEffect(() => {
-    localStorage.setItem('baust_messages', JSON.stringify(messages));
-  }, [messages]);
+    if (!isApprovedSession || !firebaseUser) {
+      setConversations([]);
+      setConversationsLoading(false);
+      setMessages({});
+      return;
+    }
 
-  const setRole = (newRole: UserRole) => {
-    setRoleState(newRole);
-    addToast('info', 'Switched Demo Persona', `Now browsing as ${newRole.toUpperCase()}`);
-  };
+    setConversationsLoading(true);
+    return subscribeConversations(
+      firebaseUser.uid,
+      (items) => {
+        setConversations(items);
+        setConversationsLoading(false);
+      },
+      (err) => {
+        setConversationsLoading(false);
+        console.warn('Conversations listener warning:', err.message);
+      }
+    );
+  }, [isApprovedSession, firebaseUser]);
+
+  // 4. Real-time Firestore Document Requests for current scope
+  useEffect(() => {
+    if (!isApprovedSession || !firebaseUser || !userProfile) {
+      setServiceRequests([]);
+      return;
+    }
+
+    const colRef = collection(db, 'documentRequests');
+    const q =
+      userProfile.role === 'admin' || userProfile.role === 'superAdmin'
+        ? colRef
+        : query(colRef, where('userId', '==', firebaseUser.uid));
+
+    return onSnapshot(
+      q,
+      (snap) => {
+        const docs: ServiceRequest[] = snap.docs.map((d) => {
+          const data = d.data() as Record<string, any>;
+          const created = formatSubmittedTimestamp(data.createdAt);
+          const rawStatus = String(data.status || 'submitted').toLowerCase();
+          const stageIdx = normalizeStageIndexFromStatus(rawStatus, data.currentStageIndex);
+          const mappedStatus: ServiceRequest['status'] =
+            rawStatus === 'ready'
+              ? 'Ready'
+              : rawStatus === 'delivered'
+              ? 'Delivered'
+              : rawStatus === 'approved'
+              ? 'Approved'
+              : rawStatus === 'rejected'
+              ? 'Rejected'
+              : rawStatus === 'under review' || rawStatus === 'processing'
+              ? 'Under Review'
+              : 'Pending';
+
+          const canonicalStages =
+            Array.isArray(data.stages) && data.stages.length === DOC_STAGES.length
+              ? data.stages
+              : DOC_STAGES.map((st, idx) => ({
+                  key: st.key,
+                  label: st.label,
+                  status:
+                    rawStatus === 'delivered'
+                      ? 'done'
+                      : idx < stageIdx
+                      ? 'done'
+                      : idx === stageIdx
+                      ? 'current'
+                      : 'pending',
+                }));
+
+          return {
+            id: data.trackingId || d.id,
+            alumniId: data.userId || '',
+            alumniName: data.userName || 'BAUST Member',
+            alumniEmail: data.userEmail || '',
+            alumniPhone: data.phone || data.alumniPhone || '',
+            baustId: data.baustId || '',
+            department: normalizeDepartment(data.department),
+            passingYear: typeof data.passingYear === 'number' ? data.passingYear : 0,
+            documentType: (data.type as any) || 'Transcript',
+            copies: typeof data.copies === 'number' ? data.copies : 1,
+            purpose: (data.purpose as any) || 'Personal Record',
+            deliveryMethod:
+              data.deliveryMethod === 'Courier (Home Delivery)'
+                ? 'Courier (Home Delivery)'
+                : 'On-Campus Collection (BAUST Saidpur)',
+            deliveryAddress: data.deliveryAddress || '',
+            paymentMethod: (data.paymentMethod as any) || 'bKash',
+            transactionId: data.transactionId || '',
+            amount: typeof data.fee === 'number' ? data.fee : 500,
+            status: mappedStatus,
+            submittedAt: created.text,
+            estimatedDelivery: data.estimatedDelivery || '5 - 7 business days',
+            adminRemarks: data.adminRemarks || data.remarks || '',
+            timeline: canonicalStages.map((s: any) => ({
+              step: s.label,
+              timestamp: s.completedAt || (s.status === 'current' ? 'In progress' : 'Pending'),
+              completed: s.status === 'done',
+              remarks: s.note,
+            })),
+          };
+        });
+        setServiceRequests(docs);
+      },
+      (err) => {
+        if (!isTransientFirestoreError(err)) {
+          console.warn('Service requests listener warning:', err.message);
+        }
+      }
+    );
+  }, [isApprovedSession, firebaseUser, userProfile?.role]);
+
+  // 5. Real-time Firestore `verificationRequests` EXCLUSIVELY for approved Super Admin
+  useEffect(() => {
+    const isApprovedSuperAdmin = isApprovedSession && userProfile?.role === 'superAdmin';
+
+    if (!isApprovedSuperAdmin) {
+      setVerifications([]);
+      setVerificationsLoading(false);
+      return;
+    }
+
+    setVerificationsLoading(true);
+    const unsubscribe = onSnapshot(
+      collection(db, 'verificationRequests'),
+      (snapshot) => {
+        const items: Array<VerificationItem & { _sortMillis: number }> = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          const status = normalizeVerificationStatus(data.status ?? data.accountStatus);
+          const { text, millis } = formatSubmittedTimestamp(data.submittedAt);
+          const itemRole: 'student' | 'alumni' | 'admin' =
+            data.role === 'admin' ? 'admin' : data.role === 'alumni' ? 'alumni' : 'student';
+
+          items.push({
+            id: docSnap.id,
+            userId: data.userId || docSnap.id,
+            name: data.name || 'Applicant',
+            email: data.email || '',
+            role: itemRole,
+            baustId: data.baustId || data.details?.baustId || data.studentId || 'Pending ID',
+            department: normalizeDepartment(data.department || data.details?.department),
+            batch: data.batch || data.details?.batch || '',
+            passingYear: data.passingYear ?? data.details?.passingYear ?? undefined,
+            office: data.office || data.details?.office || '',
+            company: data.company || data.details?.company || '',
+            designation: data.designation || data.details?.designation || '',
+            details: {
+              ...(data.details || {}),
+              linkedin: data.linkedin || data.details?.linkedin || '',
+              verificationProofUrl: data.verificationProofUrl || data.details?.verificationProofUrl || '',
+            },
+            submittedAt: text,
+            documentType:
+              data.documentType ||
+              (itemRole === 'admin'
+                ? 'BAUST Staff Authorization'
+                : itemRole === 'alumni'
+                ? 'Degree Certificate / Alumni Proof'
+                : 'Student ID Card Verification'),
+            documentPreviewUrl:
+              data.verificationProofUrl ||
+              data.documentPreviewUrl ||
+              data.linkedin ||
+              '',
+            status,
+            accountStatus: status.toLowerCase() as 'pending' | 'approved' | 'rejected',
+            rejectionReason: data.rejectionReason || data.reason || '',
+            reason: data.reason || data.rejectionReason || '',
+            reviewedAt: data.reviewedAt,
+            reviewedBy: data.reviewedBy,
+            isDemo: Boolean(data.isDemo) || isDemoAccountEmail(data.email),
+            _sortMillis: millis,
+          });
+        });
+
+        items.sort((a, b) => b._sortMillis - a._sortMillis);
+        setVerifications(items.map(({ _sortMillis, ...rest }) => rest));
+        setVerificationsLoading(false);
+      },
+      (error) => {
+        console.warn('Firestore verificationRequests listener error:', error.message);
+        setVerificationsLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isApprovedSession, userProfile?.role]);
+
+  // 6. Real-time Firestore listener for Announcements
+  useEffect(() => {
+    if (!isApprovedSession) {
+      setAnnouncements([]);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      collection(db, 'announcements'),
+      (snap) => {
+        const docs: Announcement[] = snap.docs.map((d) => {
+          const data = d.data() as Record<string, any>;
+          return {
+            id: d.id,
+            title: data.title ?? 'Announcement',
+            category: data.category ?? 'Notice',
+            targetAudience: data.targetAudience ?? 'All',
+            content: data.content ?? '',
+            author: data.author ?? 'BAUST Administration',
+            authorId: data.authorId ?? '',
+            date: data.date ?? formatSubmittedTimestamp(data.createdAt).text,
+            pinned: Boolean(data.pinned),
+            linkText: data.linkText,
+            linkUrl: data.linkUrl,
+            isDemo: Boolean(data.isDemo),
+          };
+        });
+        setAnnouncements(docs);
+      },
+      (err) => {
+        console.warn('Firestore announcements listener warning:', err.message);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isApprovedSession]);
+
+  // 7. Real-time Firestore listener for Mentorships (scoped by role)
+  useEffect(() => {
+    if (!isApprovedSession || !firebaseUser || !userProfile) {
+      setMentorshipRequests([]);
+      return;
+    }
+
+    const opts =
+      userProfile.role === 'student'
+        ? { studentId: firebaseUser.uid }
+        : userProfile.role === 'alumni'
+        ? { alumniId: firebaseUser.uid }
+        : {};
+
+    return subscribeFirestoreMentorships(
+      opts,
+      (docs) => {
+        const mapped: MentorshipRequest[] = docs.map((data) => {
+          const rawStatus = String(data.status || 'Pending').trim();
+          const normalizedStatus: MentorshipRequest['status'] =
+            rawStatus === 'Accepted' ||
+            rawStatus === 'Declined' ||
+            rawStatus === 'On Hold' ||
+            rawStatus === 'Completed' ||
+            rawStatus === 'Cancelled'
+              ? rawStatus
+              : 'Pending';
+
+          return {
+            id: data.id,
+            studentId: data.studentId ?? '',
+            studentName: data.studentName ?? 'BAUST Student',
+            studentDept: normalizeDepartment(data.studentDept),
+            studentBatch: data.studentBatch ?? '',
+            studentAvatar: data.studentAvatar ?? '',
+            alumniId: data.alumniId ?? data.mentorId ?? '',
+            alumniName: data.alumniName ?? data.mentorName ?? 'BAUST Alumni',
+            mentorId: data.mentorId ?? data.alumniId ?? '',
+            mentorName: data.mentorName ?? data.alumniName ?? 'BAUST Alumni',
+            alumniCompany: data.alumniCompany ?? '',
+            topic: data.topic ?? 'Career Guidance',
+            note: data.note ?? data.message ?? '',
+            message: data.message ?? data.note ?? '',
+            preferredDate: data.preferredDate ?? '',
+            preferredTime: data.preferredTime ?? '',
+            status: normalizedStatus,
+            meetingLink: data.meetingLink ?? '',
+            scheduledDate: data.preferredDate ?? '',
+            scheduledTime: data.preferredTime ?? '',
+            createdAt: tsToMillis(data.createdAt)
+              ? new Date(tsToMillis(data.createdAt)).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })
+              : 'Recently',
+            updatedAt: tsToMillis(data.updatedAt)
+              ? new Date(tsToMillis(data.updatedAt)).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })
+              : undefined,
+            feedback: data.feedback ?? '',
+            statusHistory: Array.isArray(data.statusHistory) ? data.statusHistory : [],
+          };
+        });
+        setMentorshipRequests(mapped);
+      },
+      (err) => {
+        console.warn('Mentorships listener warning:', err.message);
+      }
+    );
+  }, [isApprovedSession, firebaseUser, userProfile?.role]);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
   };
 
-  const addToast = (type: ToastMessage['type'], title: string, message?: string) => {
-    const id = 'toast-' + Date.now() + Math.random().toString(36).substring(2, 5);
-    setToasts((prev) => [...prev, { id, type, title, message }]);
-    setTimeout(() => {
-      removeToast(id);
-    }, 4500);
-  };
-
-  const removeToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
-
-  // Determine current active user: prefer real Firebase profile if matching active role
   const currentUser = React.useMemo(() => {
-    if (userProfile && userProfile.role === role) {
-      if (role === 'student') {
-        return {
-          ...studentList[0],
-          ...userProfile,
-          id: userProfile.id,
-          name: userProfile.name,
-          email: userProfile.email,
-          role: 'student' as const,
-          avatar: userProfile.avatar || studentList[0].avatar,
-          department: userProfile.department || studentList[0].department,
-          batch: userProfile.batch || studentList[0].batch,
-          studentId: userProfile.studentId || userProfile.baustId || studentList[0].studentId,
-          currentSemester: userProfile.currentSemester || studentList[0].currentSemester,
-          cgpa: userProfile.cgpa !== undefined ? userProfile.cgpa : studentList[0].cgpa,
-          interests: userProfile.interests || studentList[0].interests,
-          careerGoal: userProfile.careerGoal || studentList[0].careerGoal,
-          cvFileName: userProfile.cvFileName || studentList[0].cvFileName,
-          isVerified: userProfile.isVerified !== undefined ? userProfile.isVerified : studentList[0].isVerified,
-        } as StudentProfile;
-      } else if (role === 'alumni') {
-        return {
-          ...alumniList[0],
-          ...userProfile,
-          id: userProfile.id,
-          name: userProfile.name,
-          email: userProfile.email,
-          role: 'alumni' as const,
-          avatar: userProfile.avatar || alumniList[0].avatar,
-          department: userProfile.department || alumniList[0].department,
-          batch: userProfile.batch || alumniList[0].batch,
-          designation: userProfile.designation || alumniList[0].designation,
-          company: userProfile.company || alumniList[0].company,
-          sector: (userProfile.sector as any) || alumniList[0].sector,
-          location: userProfile.location || alumniList[0].location,
-          passingYear: userProfile.passingYear || alumniList[0].passingYear,
-          isVerified: userProfile.isVerified !== undefined ? userProfile.isVerified : alumniList[0].isVerified,
-        } as AlumniProfile;
-      } else {
-        return {
-          ...ADMIN_USER,
-          ...userProfile,
-          id: userProfile.id,
-          name: userProfile.name,
-          email: userProfile.email,
-          role: 'admin' as const,
-        };
-      }
+    if (!userProfile) {
+      return FALLBACK_GUEST_USER;
     }
 
-    return role === 'student' 
-      ? studentList[0] 
-      : role === 'alumni' 
-        ? alumniList[0] 
-        : ADMIN_USER;
-  }, [userProfile, role, studentList, alumniList]);
+    if (userProfile.role === 'student') {
+      return toStudentProfile(userProfile, firebaseUser?.uid, userProfile.role);
+    }
 
-  // Actions
-  const addServiceRequest = (newReq: Omit<ServiceRequest, 'id' | 'submittedAt' | 'timeline' | 'status' | 'estimatedDelivery'>) => {
-    const id = `REQ-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const now = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const fullReq: ServiceRequest = {
-      ...newReq,
-      id,
-      submittedAt: now,
-      status: 'Pending',
-      estimatedDelivery: '10 business days',
-      timeline: [
-        { step: 'Request Submitted & Payment Verified', timestamp: `${now} (Online)`, completed: true },
-        { step: 'Document Under Review by Registrar Office', timestamp: 'Pending', completed: false },
-        { step: 'Controller of Examinations Approval & Seal', timestamp: 'Pending', completed: false },
-        { step: 'Ready for Dispatch / Collection', timestamp: 'Pending', completed: false },
-        { step: 'Delivered / Handed Over', timestamp: 'Pending', completed: false }
-      ]
-    };
-    setServiceRequests((prev) => [fullReq, ...prev]);
-    addToast('success', 'Document Request Submitted', `Application ID: ${id}`);
+    if (userProfile.role === 'alumni') {
+      return toAlumniProfile(userProfile, firebaseUser?.uid, userProfile.role);
+    }
+
+    return {
+      id: userProfile.id || firebaseUser?.uid || '',
+      name: userProfile.name || (userProfile.role === 'superAdmin' ? 'Super Admin' : 'BAUST Admin'),
+      email: userProfile.email || '',
+      role: userProfile.role,
+      avatar: userProfile.avatar || '',
+      department: normalizeDepartment(userProfile.department),
+      batch: userProfile.batch || '',
+      office: userProfile.office || '',
+      isVerified: Boolean(userProfile.isVerified),
+      isDemo: Boolean(userProfile.isDemo),
+      verificationStatus: userProfile.verificationStatus ?? 'pending',
+    } as StaffUserShape;
+  }, [userProfile, firebaseUser?.uid]);
+
+  const addServiceRequest = (
+    newReq: Omit<ServiceRequest, 'id' | 'submittedAt' | 'timeline' | 'status' | 'estimatedDelivery'>
+  ) => {
+    if (!firebaseUser) return;
+    const trackingId = `REQ-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const nowIso = new Date().toISOString();
+    const applicantName = userProfile?.name || newReq.alumniName || 'BAUST Member';
+    const stages = buildInitialDocumentStages(applicantName, nowIso);
+    void setDoc(doc(db, 'documentRequests', trackingId), {
+      id: trackingId,
+      trackingId,
+      userId: firebaseUser.uid,
+      userName: applicantName,
+      userEmail: userProfile?.email || newReq.alumniEmail,
+      userRole: userProfile?.role || 'student',
+      baustId: userProfile?.baustId || newReq.baustId || '',
+      department: newReq.department || userProfile?.department || '',
+      batch: userProfile?.batch || '',
+      passingYear: userProfile?.passingYear || 0,
+      alumniPhone: userProfile?.phone || '',
+      type: newReq.documentType,
+      copies: newReq.copies,
+      purpose: newReq.purpose,
+      deliveryMethod: newReq.deliveryMethod,
+      deliveryAddress: newReq.deliveryAddress || '',
+      paymentMethod: newReq.paymentMethod,
+      transactionId: newReq.transactionId,
+      fee: newReq.amount,
+      status: 'submitted',
+      stages,
+      currentStageIndex: 1,
+      currentStageKey: 'payment_verified',
+      payment: {
+        method: newReq.paymentMethod,
+        transactionId: newReq.transactionId,
+        subtotal: newReq.amount,
+        urgencyFee: 0,
+        courierFee: 0,
+        totalAmount: newReq.amount,
+        isVerified: false,
+        paidAt: nowIso,
+      },
+      statusHistory: [
+        {
+          status: 'Submitted',
+          stageKey: 'submitted',
+          action: 'submit',
+          at: nowIso,
+          by: firebaseUser.uid,
+          byName: applicantName,
+          note: `Submitted ${newReq.documentType} (${newReq.copies} copy)`,
+        },
+      ],
+      isDemo: Boolean(userProfile?.isDemo),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+      .then(() => {
+        void triggerNotification({
+          recipientId: 'ALL_ADMINS',
+          title: 'New Document Request Submitted',
+          message: `${applicantName} requested ${newReq.documentType} (${trackingId}).`,
+          type: 'service',
+          link: `/admin/admin-desk/requests/${trackingId}`,
+          itemId: trackingId,
+          refId: trackingId,
+        });
+        addToast('success', 'Document Request Submitted', `Application ID: ${trackingId}`);
+      })
+      .catch((err) => {
+        addToast('error', 'Request Failed', err?.message || 'Unable to save request.');
+      });
   };
 
-  const updateServiceRequestStatus = (id: string, status: ServiceRequest['status'], remarks?: string, trackingNumber?: string) => {
-    setServiceRequests((prev) =>
-      prev.map((req) => {
-        if (req.id !== id) return req;
-        const now = new Date().toLocaleString();
-        const updatedTimeline = req.timeline.map((step) => {
-          if (status === 'Under Review' && step.step.includes('Under Review')) {
-            return { ...step, completed: true, timestamp: now, remarks: remarks || step.remarks };
-          }
-          if (status === 'Approved' && step.step.includes('Approval')) {
-            return { ...step, completed: true, timestamp: now, remarks: remarks || step.remarks };
-          }
-          if (status === 'Ready' && step.step.includes('Ready for Dispatch')) {
-            return { ...step, completed: true, timestamp: now };
-          }
-          if (status === 'Delivered' && step.step.includes('Delivered')) {
-            return { ...step, completed: true, timestamp: now };
-          }
-          return step;
+  const updateServiceRequestStatus = (
+    id: string,
+    status: ServiceRequest['status'],
+    remarks?: string,
+    trackingNumber?: string
+  ) => {
+    const target = serviceRequests.find((r) => r.id === id);
+    const nowIso = new Date().toISOString();
+    const actorName = userProfile?.name || 'Admin Staff';
+    void getDoc(doc(db, 'documentRequests', id))
+      .then(async (snap) => {
+        const snapData = snap.exists() ? (snap.data() as Record<string, any>) : {};
+        const prevHistory = Array.isArray(snapData.statusHistory) ? snapData.statusHistory : [];
+        await updateDoc(doc(db, 'documentRequests', id), {
+          status: status.toLowerCase(),
+          remarks: remarks || '',
+          adminRemarks: remarks || '',
+          trackingNumber: trackingNumber || '',
+          statusHistory: [
+            ...prevHistory,
+            { status, at: nowIso, by: actorName, note: remarks || `Updated to ${status}` },
+          ],
+          updatedAt: serverTimestamp(),
         });
 
-        return {
-          ...req,
-          status,
-          adminRemarks: remarks || req.adminRemarks,
-          trackingNumber: trackingNumber || req.trackingNumber,
-          timeline: updatedTimeline,
-        };
-      })
-    );
-    addToast('success', 'Request Updated', `Status changed to ${status}`);
-  };
-
-  const requestMentorship = (req: Omit<MentorshipRequest, 'id' | 'createdAt' | 'status'>) => {
-    const id = `MNT-${Math.floor(200 + Math.random() * 800)}`;
-    const newSession: MentorshipRequest = {
-      ...req,
-      id,
-      status: 'Pending',
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setMentorshipRequests((prev) => [newSession, ...prev]);
-    addToast('success', 'Mentorship Requested', `Request sent to ${req.alumniName}`);
-  };
-
-  const respondMentorship = (id: string, action: 'Accepted' | 'Declined', feedback?: string, meetingLink?: string) => {
-    setMentorshipRequests((prev) =>
-      prev.map((item) => {
-        if (item.id !== id) return item;
-        return {
-          ...item,
-          status: action,
-          feedback: feedback || item.feedback,
-          meetingLink: meetingLink || (action === 'Accepted' ? 'https://meet.google.com/bau-stcb-live' : undefined),
-          scheduledDate: action === 'Accepted' ? item.preferredDate : undefined,
-          scheduledTime: action === 'Accepted' ? item.preferredTime : undefined,
-        };
-      })
-    );
-    addToast(action === 'Accepted' ? 'success' : 'info', `Mentorship ${action}`, `Updated session ${id}`);
-  };
-
-  const ensureAdminAuth = async () => {
-    if (
-      !auth.currentUser ||
-      (auth.currentUser.email !== 'registrar@baust.edu.bd' &&
-        auth.currentUser.email !== 'atiaibnatpapri@gmail.com')
-    ) {
-      try {
-        await signInWithEmailAndPassword(auth, 'registrar@baust.edu.bd', 'admin123456');
-      } catch (err: any) {
-        console.warn('Admin auto-auth notice:', err.message);
-      }
-    }
-  };
-
-  const approveVerification = async (id: string): Promise<boolean> => {
-    try {
-      await ensureAdminAuth();
-
-      let item = verifications.find((v) => v.id === id);
-      let userId = item?.userId;
-
-      // If item or userId is missing in memory, fetch fresh from Firestore
-      if (!userId) {
-        try {
-          const vSnap = await getDocFromServer(doc(db, 'verifications', id));
-          if (vSnap.exists()) {
-            userId = vSnap.data().userId;
-            if (!item) {
-              item = { id: vSnap.id, ...vSnap.data() } as any;
-            }
-          }
-        } catch (e) {
-          // fallback
+        const recipientUid = target?.alumniId || snapData.userId;
+        const applicantRole = snapData.userRole || 'student';
+        if (recipientUid) {
+          void triggerNotification({
+            recipientId: recipientUid,
+            title: `Document Status: ${status}`,
+            message: `Your request ${id} is now ${status}.`,
+            type: 'service',
+            link: getDocumentRequestLink(applicantRole, id),
+            itemId: id,
+            refId: id,
+          });
         }
-      }
+        addToast('success', 'Request Updated', `Status changed to ${status}`);
+      })
+      .catch((err) => {
+        addToast('error', 'Update Failed', err?.message || 'Permission denied.');
+      });
+  };
 
-      if (!userId) {
-        userId = id.replace('ver-', '');
-      }
+  // Strict mentorship validation & duplicate blocking (#51)
+  const requestMentorship = async (
+    req: Omit<MentorshipRequest, 'id' | 'createdAt' | 'status'>
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!firebaseUser) {
+      addToast('error', 'Sign In Required', 'Please log in to request mentorship.');
+      return { success: false, error: 'Sign in required' };
+    }
+    if (!req.alumniId) {
+      addToast('error', 'Select Alumni Mentor', 'Please select a specific alumni mentor before submitting.');
+      return { success: false, error: 'Specific mentor selection required' };
+    }
 
-      const nowIso = new Date().toISOString();
+    const duplicate = mentorshipRequests.some(
+      (m) =>
+        m.studentId === firebaseUser.uid &&
+        m.alumniId === req.alumniId &&
+        (m.status === 'Pending' || m.status === 'Accepted' || m.status === 'On Hold')
+    );
+    if (duplicate) {
+      addToast(
+        'warning',
+        'Duplicate Request Blocked',
+        `You already have an active or pending mentorship request with ${req.alumniName}.`
+      );
+      return { success: false, error: 'Duplicate active mentorship request' };
+    }
 
-      // 1. Update the user document in /users/{userId}
-      const userDocRef = doc(db, 'users', userId);
-      await updateDoc(userDocRef, {
-        accountStatus: 'approved',
-        verificationStatus: 'approved',
-        isVerified: true,
-        approvedAt: nowIso,
-        updatedAt: nowIso,
+    const pendingCount = mentorshipRequests.filter(
+      (m) => m.studentId === firebaseUser.uid && (m.status === 'Pending' || m.status === 'On Hold')
+    ).length;
+    if (pendingCount >= 3) {
+      addToast(
+        'warning',
+        'Pending Request Limit',
+        'You may have at most 3 pending mentorship requests at a time.'
+      );
+      return { success: false, error: 'Max 3 pending mentorship requests reached' };
+    }
+
+    try {
+      const createdId = await createFirestoreMentorship({
+        studentId: firebaseUser.uid,
+        studentName: userProfile?.name || req.studentName,
+        studentDept: normalizeDepartment(userProfile?.department || req.studentDept),
+        studentBatch: userProfile?.batch || req.studentBatch || '',
+        studentAvatar: userProfile?.avatar || req.studentAvatar || '',
+        alumniId: req.alumniId,
+        alumniName: req.alumniName,
+        alumniCompany: req.alumniCompany,
+        topic: req.topic,
+        note: req.note,
+        preferredDate: req.preferredDate,
+        preferredTime: req.preferredTime,
+        isDemo: Boolean(userProfile?.isDemo),
       });
 
-      // 2. Update the verification document in /verifications/{id}
-      const verDocRef = doc(db, 'verifications', id);
-      try {
-        await updateDoc(verDocRef, {
-          status: 'Approved',
-          accountStatus: 'approved',
-          verificationStatus: 'approved',
-          approvedAt: nowIso,
-          reviewedAt: nowIso,
-          reviewedBy: 'Registrar Office',
+      void triggerNotification({
+        recipientId: req.alumniId,
+        title: 'New Mentorship Request',
+        message: `${userProfile?.name || 'A student'} requested mentorship on "${req.topic}".`,
+        type: 'mentorship',
+        link: `/alumni/mentorship?req=${createdId}`,
+        itemId: createdId,
+        refId: createdId,
+      });
+
+      addToast('success', 'Mentorship Requested', `Request sent to ${req.alumniName}`);
+      return { success: true };
+    } catch (err: any) {
+      const msg = err?.message || 'Unable to send mentorship request.';
+      addToast('error', 'Request Failed', msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  const respondMentorship = async (
+    id: string,
+    action: 'Accepted' | 'Declined' | 'On Hold' | 'Cancelled',
+    feedback?: string,
+    meetingLink?: string
+  ): Promise<void> => {
+    const existing = mentorshipRequests.find((m) => m.id === id);
+    const actorName = userProfile?.name || existing?.alumniName || 'Alumni Mentor';
+    try {
+      await updateFirestoreMentorship(id, action, feedback, meetingLink, actorName);
+
+      // Auto-create/open a direct conversation thread when an alumni accepts a mentorship request
+      if (action === 'Accepted' && existing?.studentId && firebaseUser && userProfile) {
+        const studentUser = allUsers.find((u) => (u.id || u.uid) === existing.studentId);
+        void openOrCreateFirestoreConversation({
+          currentUid: firebaseUser.uid,
+          currentName: userProfile.name,
+          currentAvatar: userProfile.avatar,
+          currentRole: userProfile.role,
+          currentTitle: `${userProfile.designation || 'Alumni'} · ${userProfile.company || 'BAUST'}`,
+          participantUid: existing.studentId,
+          participantName: existing.studentName || studentUser?.name || 'BAUST Student',
+          participantAvatar: existing.studentAvatar || studentUser?.avatar || '',
+          participantRole: 'student',
+          participantTitle: `${existing.studentDept || 'CSE'} · ${existing.studentBatch || 'BAUST Student'}`,
+          source: 'mentorship',
+        }).catch(() => {});
+      }
+
+      if (action === 'Cancelled' && existing?.alumniId) {
+        void triggerNotification({
+          recipientId: existing.alumniId,
+          title: 'Mentorship Request Cancelled',
+          message: `${userProfile?.name || existing.studentName} cancelled the mentorship request (${existing.topic}).`,
+          type: 'mentorship',
+          link: `/alumni/mentorship?req=${id}`,
+          itemId: id,
+          refId: id,
         });
-      } catch (err: any) {
-        console.warn('Notice: verifications doc update:', err.message);
+      } else if (existing?.studentId) {
+        const statusPhrase =
+          action === 'On Hold' ? 'placed your mentorship request on hold' : `${action.toLowerCase()} your mentorship request`;
+        void triggerNotification({
+          recipientId: existing.studentId,
+          title: `Mentorship ${action}`,
+          message: `${actorName} ${statusPhrase} (${existing.topic}).`,
+          type: 'mentorship',
+          link: `/student/mentorship?req=${id}`,
+          itemId: id,
+          refId: id,
+        });
+      }
+      addToast(
+        action === 'Accepted' ? 'success' : action === 'On Hold' ? 'warning' : 'info',
+        `Mentorship ${action}`,
+        `Updated request ${id}`
+      );
+    } catch (err: any) {
+      addToast('error', 'Update Failed', err?.message || 'Could not update mentorship status.');
+    }
+  };
+
+  // EXCLUSIVELY for Super Admin (both real & Demo Super Admin)
+  const approveVerification = async (idOrUid: string): Promise<boolean> => {
+    if (!auth.currentUser || userProfile?.role !== 'superAdmin') {
+      addToast(
+        'error',
+        'Super Admin Authorization Required',
+        'Only an approved Super Admin can approve registration requests.'
+      );
+      return false;
+    }
+
+    try {
+      const existingItem = verifications.find((v) => v.id === idOrUid || v.userId === idOrUid);
+      let userId = existingItem?.userId || idOrUid;
+      let targetEmail = existingItem?.email || '';
+      let isDemoSampleOnly = false;
+
+      const reqSnap = await getDoc(doc(db, 'verificationRequests', existingItem?.id || idOrUid));
+      if (reqSnap.exists()) {
+        const reqData = reqSnap.data();
+        userId = reqData.userId || reqSnap.id;
+        targetEmail = reqData.email || targetEmail;
+        isDemoSampleOnly = reqSnap.id.startsWith('demo-sample-');
       }
 
-      // 3. Update local state and storage only after Firestore succeeds
-      setVerifications((prev) => {
-        const updated = prev.map((v) =>
-          v.id === id ? { ...v, status: 'Approved' as const, accountStatus: 'approved' as const, approvedAt: nowIso } : v
+      const reviewerUid = auth.currentUser.uid;
+      const targetUserSnap = !isDemoSampleOnly
+        ? await getDoc(doc(db, 'users', userId)).catch(() => null)
+        : null;
+      const targetUserData = targetUserSnap?.exists() ? targetUserSnap.data() : null;
+      const targetIsProtectedDemoUser =
+        Boolean(targetUserData?.isDemo) || isDemoAccountEmail(targetUserData?.email || targetEmail);
+
+      const batch = writeBatch(db);
+
+      batch.set(
+        doc(db, 'verificationRequests', existingItem?.id || userId),
+        {
+          status: 'approved',
+          reviewedBy: reviewerUid,
+          reviewedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          reason: '',
+        },
+        { merge: true }
+      );
+
+      if (!isDemoSampleOnly && !targetIsProtectedDemoUser) {
+        const resolvedRole = targetUserData?.role || existingItem?.role;
+        batch.set(
+          doc(db, 'users', userId),
+          {
+            id: userId,
+            uid: userId,
+            verificationStatus: 'approved',
+            accountStatus: 'approved',
+            isVerified: true,
+            verifiedAlumniBadge: resolvedRole === 'alumni',
+            isDemo: false,
+            rejectionReason: '',
+            approvedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
         );
-        localStorage.setItem('baust_verifications', JSON.stringify(updated));
-        return updated;
+      }
+
+      await batch.commit();
+
+      if (!isDemoSampleOnly) {
+        void triggerNotification({
+          recipientId: userId,
+          title: 'Account Verified & Approved',
+          message: 'Your BAUST Career Bridge account has been verified by Super Admin.',
+          type: 'verification',
+          link: `/${existingItem?.role || 'student'}/dashboard`,
+          itemId: userId,
+        });
+      }
+
+      void logPortalActivity({
+        actorId: reviewerUid,
+        actorName: userProfile?.name || 'Super Admin',
+        actorRole: 'superAdmin',
+        action: 'APPROVE_REGISTRATION',
+        targetType: 'user',
+        targetId: userId,
+        details: `Approved ${existingItem?.role || 'member'} registration for ${existingItem?.name || userId}`,
+        isDemo: Boolean(userProfile?.isDemo),
       });
 
-      addToast('success', 'Profile Approved', `${item?.name || 'Applicant'} account has been approved. They can now log in.`);
-
-      // 4. In-app notification
-      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const approvalNotif: Notification = {
-        id: `notif-${Date.now()}`,
-        title: 'Profile Approved',
-        message: `${item?.name || 'Applicant'} (${item?.baustId || 'ID'}) has been approved by Registrar Office.`,
-        timestamp: `${nowStr} · Just now`,
-        read: false,
-        type: 'announcement',
-      };
-      setNotifications((prev) => [approvalNotif, ...prev]);
-
+      addToast(
+        'success',
+        'Account Approved',
+        `${existingItem?.name || 'Applicant'} has been verified and granted portal access.`
+      );
       return true;
     } catch (err: any) {
       console.error('Approval failed:', err);
-      addToast('error', 'Approval Failed', `Could not update Firestore user document: ${err.message || 'Permission denied'}`);
+      addToast(
+        'error',
+        'Approval Failed',
+        `Could not update Firestore user document: ${err.message || 'Permission denied'}`
+      );
       return false;
     }
   };
 
-  const rejectVerification = async (id: string, reason: string): Promise<boolean> => {
+  // EXCLUSIVELY for Super Admin (both real & Demo Super Admin)
+  const rejectVerification = async (idOrUid: string, reason: string): Promise<boolean> => {
+    if (!auth.currentUser || userProfile?.role !== 'superAdmin') {
+      addToast(
+        'error',
+        'Super Admin Authorization Required',
+        'Only an approved Super Admin can reject registration requests.'
+      );
+      return false;
+    }
+
     try {
-      await ensureAdminAuth();
+      const existingItem = verifications.find((v) => v.id === idOrUid || v.userId === idOrUid);
+      let userId = existingItem?.userId || idOrUid;
+      let targetEmail = existingItem?.email || '';
+      let isDemoSampleOnly = false;
 
-      let item = verifications.find((v) => v.id === id);
-      let userId = item?.userId;
-
-      if (!userId) {
-        try {
-          const vSnap = await getDocFromServer(doc(db, 'verifications', id));
-          if (vSnap.exists()) {
-            userId = vSnap.data().userId;
-            if (!item) {
-              item = { id: vSnap.id, ...vSnap.data() } as any;
-            }
-          }
-        } catch (e) {
-          // fallback
-        }
+      const reqSnap = await getDoc(doc(db, 'verificationRequests', existingItem?.id || idOrUid));
+      if (reqSnap.exists()) {
+        const reqData = reqSnap.data();
+        userId = reqData.userId || reqSnap.id;
+        targetEmail = reqData.email || targetEmail;
+        isDemoSampleOnly = reqSnap.id.startsWith('demo-sample-');
       }
 
-      if (!userId) {
-        userId = id.replace('ver-', '');
-      }
+      const cleanReason = reason.trim() || 'Credentials could not be matched with BAUST records.';
+      const reviewerUid = auth.currentUser.uid;
+      const targetUserSnap = !isDemoSampleOnly
+        ? await getDoc(doc(db, 'users', userId)).catch(() => null)
+        : null;
+      const targetUserData = targetUserSnap?.exists() ? targetUserSnap.data() : null;
+      const targetIsProtectedDemoUser =
+        Boolean(targetUserData?.isDemo) || isDemoAccountEmail(targetUserData?.email || targetEmail);
 
-      const nowIso = new Date().toISOString();
+      const batch = writeBatch(db);
 
-      // 1. Update the user document in /users/{userId}
-      const userDocRef = doc(db, 'users', userId);
-      await updateDoc(userDocRef, {
-        accountStatus: 'rejected',
-        verificationStatus: 'rejected',
-        isVerified: false,
-        rejectionReason: reason,
-        rejectedAt: nowIso,
-        updatedAt: nowIso,
-      });
+      batch.set(
+        doc(db, 'verificationRequests', existingItem?.id || userId),
+        {
+          status: 'rejected',
+          reason: cleanReason,
+          rejectionReason: cleanReason,
+          reviewedBy: reviewerUid,
+          reviewedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
-      // 2. Update the verification document in /verifications/{id}
-      const verDocRef = doc(db, 'verifications', id);
-      try {
-        await updateDoc(verDocRef, {
-          status: 'Rejected',
-          accountStatus: 'rejected',
-          verificationStatus: 'rejected',
-          rejectionReason: reason,
-          reviewedAt: nowIso,
-          reviewedBy: 'Registrar Office',
-        });
-      } catch (err: any) {
-        console.warn('Notice: verifications doc rejection update:', err.message);
-      }
-
-      setVerifications((prev) => {
-        const updated = prev.map((v) =>
-          v.id === id
-            ? { ...v, status: 'Rejected' as const, accountStatus: 'rejected' as const, rejectionReason: reason, rejectedAt: nowIso }
-            : v
+      if (!isDemoSampleOnly && !targetIsProtectedDemoUser) {
+        batch.set(
+          doc(db, 'users', userId),
+          {
+            id: userId,
+            uid: userId,
+            verificationStatus: 'rejected',
+            accountStatus: 'rejected',
+            isVerified: false,
+            verifiedAlumniBadge: false,
+            isDemo: false,
+            rejectionReason: cleanReason,
+            rejectedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
         );
-        localStorage.setItem('baust_verifications', JSON.stringify(updated));
-        return updated;
+      }
+
+      await batch.commit();
+
+      void logPortalActivity({
+        actorId: reviewerUid,
+        actorName: userProfile?.name || 'Super Admin',
+        actorRole: 'superAdmin',
+        action: 'REJECT_REGISTRATION',
+        targetType: 'user',
+        targetId: userId,
+        details: `Rejected ${existingItem?.name || userId}: ${cleanReason}`,
+        isDemo: Boolean(userProfile?.isDemo),
       });
 
-      addToast('warning', 'Profile Rejected', `${item?.name || 'Applicant'} registration was rejected.`);
-
-      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const rejectionNotif: Notification = {
-        id: `notif-${Date.now()}`,
-        title: 'Registration Rejected',
-        message: `${item?.name || 'Applicant'} verification was rejected: ${reason}`,
-        timestamp: `${nowStr} · Just now`,
-        read: false,
-        type: 'announcement',
-      };
-      setNotifications((prev) => [rejectionNotif, ...prev]);
-
+      addToast('warning', 'Registration Rejected', `${existingItem?.name || 'Applicant'} request rejected.`);
       return true;
     } catch (err: any) {
       console.error('Rejection failed:', err);
-      addToast('error', 'Rejection Failed', `Could not update Firestore user document: ${err.message || 'Permission denied'}`);
+      addToast(
+        'error',
+        'Rejection Failed',
+        `Could not update Firestore user document: ${err.message || 'Permission denied'}`
+      );
       return false;
     }
   };
 
-  const sendMessage = (conversationId: string, text: string, attachment?: ChatMessage['attachment']) => {
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const newMsg: ChatMessage = {
-      id: 'msg-' + Date.now(),
-      conversationId,
-      senderId: currentUser.id,
-      senderName: currentUser.name,
-      senderAvatar: currentUser.avatar,
-      text,
-      timestamp: nowTime,
-      attachment,
-    };
+  // Real-Time Firestore Chat Watching & Sending (FR-11, Part 3)
+  const markThreadRead = useCallback(
+    (conversationId: string) => {
+      if (!firebaseUser || !conversationId) return;
+      const currentMsgs = messages[conversationId] || [];
+      void clearConversationUnread(conversationId, firebaseUser.uid, currentMsgs);
+    },
+    [firebaseUser, messages]
+  );
 
-    setMessages((prev) => ({
-      ...prev,
-      [conversationId]: [...(prev[conversationId] || []), newMsg],
-    }));
+  const watchConversationMessages = useCallback(
+    (conversationId: string | null) => {
+      if (activeConvIdRef.current === conversationId) return;
+      if (msgUnsubRef.current) {
+        msgUnsubRef.current();
+        msgUnsubRef.current = null;
+      }
+      activeConvIdRef.current = conversationId;
+      if (!conversationId || !isApprovedSession || !firebaseUser) return;
 
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === conversationId
-          ? {
-              ...c,
-              lastMessage: text || (attachment ? `Sent attachment: ${attachment.name}` : ''),
-              lastMessageTime: nowTime,
-              unreadCount: 0,
-            }
-          : c
-      )
-    );
+      msgUnsubRef.current = subscribeConversationMessages(
+        conversationId,
+        50,
+        ({ messages: liveMsgs, hasMore, oldestSnap }) => {
+          if (!olderMessagesRef.current[conversationId]?.length) {
+            oldestSnapRef.current[conversationId] = oldestSnap;
+            setHasMoreMessages((prev) => ({ ...prev, [conversationId]: hasMore }));
+          }
+
+          const older = olderMessagesRef.current[conversationId] || [];
+          const mergedMap = new Map<string, ChatMessage>();
+          older.forEach((m) => mergedMap.set(m.id, m));
+          liveMsgs.forEach((m) => mergedMap.set(m.id, m));
+          const merged = Array.from(mergedMap.values()).sort(
+            (a, b) => tsToMillis(a.createdAt) - tsToMillis(b.createdAt)
+          );
+
+          setMessages((prev) => ({
+            ...prev,
+            [conversationId]: merged,
+          }));
+
+          // Mark unread messages as read while thread is active
+          const hasUnreadForMe = liveMsgs.some(
+            (m) => m.senderId !== firebaseUser.uid && !(m.readBy || []).includes(firebaseUser.uid)
+          );
+          if (hasUnreadForMe) {
+            void clearConversationUnread(conversationId, firebaseUser.uid, liveMsgs);
+          } else {
+            void clearConversationUnread(conversationId, firebaseUser.uid, []);
+          }
+        },
+        (err) => {
+          console.warn('Conversation messages listener warning:', err.message);
+        }
+      );
+    },
+    [isApprovedSession, firebaseUser]
+  );
+
+  const loadEarlierMessages = useCallback(
+    async (conversationId: string): Promise<void> => {
+      const cursor = oldestSnapRef.current[conversationId];
+      if (!cursor || loadingEarlierMessages[conversationId]) return;
+      setLoadingEarlierMessages((prev) => ({ ...prev, [conversationId]: true }));
+      try {
+        const res = await fetchEarlierConversationMessages(conversationId, cursor, 50);
+        oldestSnapRef.current[conversationId] = res.oldestSnap;
+        setHasMoreMessages((prev) => ({ ...prev, [conversationId]: res.hasMore }));
+
+        const existingOlder = olderMessagesRef.current[conversationId] || [];
+        const olderMap = new Map<string, ChatMessage>();
+        res.messages.forEach((m) => olderMap.set(m.id, m));
+        existingOlder.forEach((m) => olderMap.set(m.id, m));
+        const nextOlder = Array.from(olderMap.values()).sort(
+          (a, b) => tsToMillis(a.createdAt) - tsToMillis(b.createdAt)
+        );
+        olderMessagesRef.current[conversationId] = nextOlder;
+
+        setMessages((prev) => {
+          const current = prev[conversationId] || [];
+          const mergedMap = new Map<string, ChatMessage>();
+          nextOlder.forEach((m) => mergedMap.set(m.id, m));
+          current.forEach((m) => mergedMap.set(m.id, m));
+          const merged = Array.from(mergedMap.values()).sort(
+            (a, b) => tsToMillis(a.createdAt) - tsToMillis(b.createdAt)
+          );
+          return { ...prev, [conversationId]: merged };
+        });
+      } catch (err: any) {
+        if (!isTransientFirestoreError(err)) {
+          addToast('error', 'Load Earlier Failed', err?.message || 'Could not load earlier messages.');
+        }
+      } finally {
+        setLoadingEarlierMessages((prev) => ({ ...prev, [conversationId]: false }));
+      }
+    },
+    [addToast, loadingEarlierMessages]
+  );
+
+  const sendMessage = async (
+    conversationId: string,
+    text: string,
+    attachment?: ChatMessage['attachment'],
+    recipientIdOverride?: string
+  ): Promise<void> => {
+    if (!firebaseUser || !userProfile) return;
+    const conv = conversations.find((c) => c.id === conversationId);
+    const derivedOther =
+      recipientIdOverride ||
+      conv?.participantId ||
+      conversationId.split('_').find((p) => p && p !== firebaseUser.uid) ||
+      '';
+    const matchedRecipient = allUsers.find((u) => (u.id || u.uid) === derivedOther);
+    const recipientRole: UserRole =
+      conv?.participantRole || (matchedRecipient?.role as UserRole) || 'alumni';
+
+    try {
+      await sendFirestoreMessage({
+        conversationId,
+        senderId: firebaseUser.uid,
+        senderName: userProfile.name,
+        senderAvatar: userProfile.avatar,
+        recipientId: derivedOther,
+        recipientRole,
+        text,
+        attachment,
+      });
+    } catch (err: any) {
+      if (!isTransientFirestoreError(err)) {
+        addToast('error', 'Message Failed', err?.message || 'Could not send message.');
+      }
+      throw err;
+    }
+  };
+
+  const openOrCreateConversation = async (
+    participantId: string,
+    source: ConversationSource = 'directory'
+  ): Promise<string | null> => {
+    if (!firebaseUser || !userProfile || !participantId || participantId === firebaseUser.uid) {
+      return null;
+    }
+
+    const expectedId = buildConversationDocId(firebaseUser.uid, participantId);
+    const existing = conversations.find((c) => c.id === expectedId || c.participantId === participantId);
+    if (existing) return existing.id;
+
+    const match = allUsers.find((u) => (u.id || u.uid) === participantId);
+    const alumniMatch = alumniList.find((a) => a.id === participantId);
+    const studentMatch = studentList.find((s) => s.id === participantId);
+    let target: any = match || alumniMatch || studentMatch;
+
+    if (!target) {
+      const snap = await getDoc(doc(db, 'users', participantId)).catch(() => null);
+      if (snap?.exists()) {
+        target = { id: snap.id, ...(snap.data() as Record<string, any>) };
+      }
+    }
+
+    if (!target) return null;
+
+    const targetRole: UserRole = (target.role as UserRole) || 'alumni';
+    const targetTitle =
+      targetRole === 'alumni'
+        ? `${target.designation || 'Alumni'}${target.company ? ` · ${target.company}` : ''}`
+        : `${target.department || 'CSE'}${target.batch ? ` · ${target.batch}` : ''}`;
+
+    const myTitle =
+      userProfile.role === 'alumni'
+        ? `${userProfile.designation || 'Alumni'}${userProfile.company ? ` · ${userProfile.company}` : ''}`
+        : `${userProfile.department || 'CSE'}${userProfile.batch ? ` · ${userProfile.batch}` : ''}`;
+
+    try {
+      const convId = await openOrCreateFirestoreConversation({
+        currentUid: firebaseUser.uid,
+        currentName: userProfile.name,
+        currentAvatar: userProfile.avatar,
+        currentRole: userProfile.role,
+        currentTitle: myTitle,
+        participantUid: participantId,
+        participantName: target.name || 'BAUST Member',
+        participantAvatar: target.avatar || '',
+        participantRole: targetRole,
+        participantTitle: targetTitle,
+        source,
+      });
+      return convId;
+    } catch (err: any) {
+      if (!isTransientFirestoreError(err)) {
+        addToast('error', 'Chat Unavailable', err?.message || 'Unable to start conversation.');
+      }
+      return null;
+    }
   };
 
   const addAnnouncement = (item: Omit<Announcement, 'id' | 'date'>) => {
-    const id = `ANC-0${announcements.length + 1}`;
-    const newAnnouncement: Announcement = {
-      ...item,
-      id,
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-    };
-    setAnnouncements((prev) => [newAnnouncement, ...prev]);
-    addToast('success', 'Announcement Published', item.title);
+    const dateLabel = new Date().toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
+    if (firebaseUser && (userProfile?.role === 'admin' || userProfile?.role === 'superAdmin')) {
+      void addDoc(collection(db, 'announcements'), {
+        ...item,
+        authorId: firebaseUser.uid,
+        date: dateLabel,
+        isDemo: Boolean(userProfile?.isDemo),
+        createdAt: serverTimestamp(),
+      })
+        .then((ref) => {
+          const recipientTarget =
+            item.targetAudience === 'Students'
+              ? 'ALL_STUDENTS'
+              : item.targetAudience === 'Alumni'
+              ? 'ALL_ALUMNI'
+              : 'ALL_USERS';
+          void triggerNotification({
+            recipientId: recipientTarget,
+            title: `University Notice: ${item.title}`,
+            message: item.content.slice(0, 120),
+            type: 'announcement',
+            link: recipientTarget === 'ALL_ALUMNI' ? '/alumni/admin-desk' : '/student/dashboard',
+            itemId: ref.id,
+          });
+          addToast('success', 'Announcement Published', item.title);
+        })
+        .catch((err) => {
+          addToast('error', 'Publish Failed', err?.message || 'Permission denied.');
+        });
+    }
   };
 
   const deleteAnnouncement = (id: string) => {
-    setAnnouncements((prev) => prev.filter((a) => a.id !== id));
-    addToast('info', 'Announcement Deleted');
+    if (firebaseUser && (userProfile?.role === 'admin' || userProfile?.role === 'superAdmin')) {
+      void deleteDoc(doc(db, 'announcements', id))
+        .then(() => {
+          addToast('info', 'Announcement Deleted');
+        })
+        .catch((err) => {
+          addToast('error', 'Delete Failed', err?.message || 'Permission denied.');
+        });
+    }
   };
 
   const markNotificationRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+    const target = notifications.find((n) => n.id === id);
+    setLocalReadNotifIds((prev) => ({ ...prev, [id]: true }));
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    if (target) {
+      void markNotificationReadFirestore(target, firebaseUser?.uid);
+    }
   };
 
   const markAllNotificationsRead = () => {
+    const mapUpdate: Record<string, boolean> = {};
+    notifications.forEach((n) => {
+      mapUpdate[n.id] = true;
+      if (!n.read) {
+        void markNotificationReadFirestore(n, firebaseUser?.uid);
+      }
+    });
+    setLocalReadNotifIds((prev) => ({ ...prev, ...mapUpdate }));
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    addToast('info', 'All notifications marked as read');
+    addToast('info', language === 'bn' ? 'সব বিজ্ঞপ্তি পঠিত হিসেবে চিহ্নিত হয়েছে' : 'All notifications marked as read');
   };
 
   const updateAlumniMentorSettings = (available: boolean, slots: string[], topics: any[]) => {
-    setAlumniList((prev) =>
-      prev.map((alm) => {
-        if (alm.id === alumniList[0].id) {
-          return {
-            ...alm,
-            mentoringAvailable: available,
-            availableSlots: slots,
-            mentorshipTopics: topics,
-          };
+    if (userProfile?.role === 'alumni') {
+      void updateFirebaseUserProfile({
+        mentoringAvailable: available,
+        availableSlots: slots,
+        mentorshipTopics: topics,
+      }).then((res) => {
+        if (res.success) {
+          addToast('success', 'Mentor Settings Saved', 'Your mentorship profile has been updated.');
+        } else {
+          addToast('error', 'Update Failed', res.error || 'Could not update settings.');
         }
-        return alm;
-      })
-    );
-    addToast('success', 'Mentor Settings Saved', 'Your mentorship profile has been updated.');
+      });
+    }
   };
 
   const updateStudentProfile = (updatedData: Partial<StudentProfile>) => {
-    // If logged in via Firebase, persist to Firestore
     if (userProfile) {
-      updateFirebaseUserProfile(updatedData).catch((err) => {
-        console.error('Failed to update Firestore profile:', err);
-      });
+      updateFirebaseUserProfile(updatedData)
+        .then((res) => {
+          if (res.success) {
+            addToast('success', 'Profile Updated', 'Student profile information saved successfully.');
+          } else {
+            addToast('error', 'Update Failed', res.error || 'Could not update profile.');
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to update Firestore profile:', err);
+          addToast('error', 'Update Failed', err?.message || 'Unexpected error');
+        });
     }
-
-    setStudentList((prev) =>
-      prev.map((std) => (std.id === studentList[0].id ? { ...std, ...updatedData } : std))
-    );
-    addToast('success', 'Profile Updated', 'Student profile information saved successfully.');
   };
 
   return (
     <AppContext.Provider
       value={{
         role,
-        setRole,
         currentUser,
         language,
         setLanguage,
         t: translations[language],
+        allUsers,
+        usersLoading,
         alumniList,
         studentList,
         serviceRequests,
         mentorshipRequests,
         verifications,
+        verificationsLoading,
         conversations,
+        conversationsLoading,
+        isReconnecting,
         messages,
+        hasMoreMessages,
+        loadingEarlierMessages,
         announcements,
         notifications,
         addServiceRequest,
@@ -737,7 +1573,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         respondMentorship,
         approveVerification,
         rejectVerification,
+        watchConversationMessages,
+        loadEarlierMessages,
+        markThreadRead,
         sendMessage,
+        openOrCreateConversation,
         addAnnouncement,
         deleteAnnouncement,
         markNotificationRead,

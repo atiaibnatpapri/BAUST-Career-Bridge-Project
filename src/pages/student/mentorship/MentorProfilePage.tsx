@@ -37,7 +37,23 @@ export const MentorProfilePage: React.FC = () => {
   const { mentors, getMentorById, savedMentorIds, toggleSaveMentor, calculateMatchScore } = useMentorshipStore();
   const { addToast } = useApp();
 
-  const mentor = getMentorById(id || '') || mentors[0];
+  const mentor = getMentorById(id || '');
+
+  if (!mentor) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-12 text-center space-y-4">
+        <h2 className="text-xl font-bold text-slate-900">Alumni Mentor Not Found</h2>
+        <p className="text-xs text-slate-500">
+          This mentor profile is currently unavailable or awaiting verification.
+        </p>
+        <Button variant="outline" onClick={() => navigate('/student/mentorship')}>
+          <ArrowLeft className="w-4 h-4 mr-1.5" />
+          Back to Mentorship Hub
+        </Button>
+      </div>
+    );
+  }
+
   const isSaved = savedMentorIds.includes(mentor.id);
   const matchScore = calculateMatchScore(mentor);
 

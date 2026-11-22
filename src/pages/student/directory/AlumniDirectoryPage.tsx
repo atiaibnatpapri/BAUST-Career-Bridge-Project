@@ -28,6 +28,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { useDirectoryStore } from '../../../hooks/useDirectoryStore';
+import { useApp } from '../../../context/AppContext';
 import { DirectoryAlumniProfile } from '../../../types/directory';
 import { DirectoryInsightsStrip } from '../../../components/directory/DirectoryInsightsStrip';
 import { AlumniDirectoryCard } from '../../../components/directory/AlumniDirectoryCard';
@@ -36,6 +37,7 @@ import { AlumniComparisonModal } from '../../../components/directory/AlumniCompa
 
 export const AlumniDirectoryPage: React.FC = () => {
   const { alumniProfiles, isAlumniSaved, toggleSaveAlumni } = useDirectoryStore();
+  const { addToast } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Search and view modes
@@ -56,7 +58,7 @@ export const AlumniDirectoryPage: React.FC = () => {
     sector: searchParams.get('sector') || 'All',
     departments: [],
     batchMin: 1,
-    batchMax: 16,
+    batchMax: 40,
     cgpaMin: 0,
     mentoringOnly: searchParams.get('mentor') === 'true',
     referralsOnly: false,
@@ -75,7 +77,7 @@ export const AlumniDirectoryPage: React.FC = () => {
     } else if (tab === 'mentors') {
       setFilters((prev) => ({ ...prev, mentoringOnly: true, sector: 'All' }));
     } else if (tab === 'abroad') {
-      setFilters((prev) => ({ ...prev, sector: 'Abroad', mentoringOnly: false }));
+      setFilters((prev) => ({ ...prev, sector: 'Higher Studies / Abroad', mentoringOnly: false }));
     } else if (tab === 'govt') {
       setFilters((prev) => ({ ...prev, sector: 'Government', mentoringOnly: false }));
     } else if (tab === 'tech') {
@@ -85,16 +87,15 @@ export const AlumniDirectoryPage: React.FC = () => {
 
   // Compare Toggle
   const handleCompareToggle = (id: string) => {
-    setComparedIds((prev) => {
-      if (prev.includes(id)) {
-        return prev.filter((i) => i !== id);
-      }
-      if (prev.length >= 3) {
-        alert('You can compare a maximum of 3 alumni at a time.');
-        return prev;
-      }
-      return [...prev, id];
-    });
+    if (comparedIds.includes(id)) {
+      setComparedIds((prev) => prev.filter((i) => i !== id));
+      return;
+    }
+    if (comparedIds.length >= 3) {
+      addToast('warning', 'Comparison Limit Reached', 'You can compare a maximum of 3 alumni at a time.');
+      return;
+    }
+    setComparedIds((prev) => [...prev, id]);
   };
 
   // Autocomplete Suggestions
@@ -102,24 +103,24 @@ export const AlumniDirectoryPage: React.FC = () => {
     if (!filters.searchTerm.trim() || filters.searchTerm.length < 2) return null;
     const term = filters.searchTerm.toLowerCase();
 
-    const matchedNames = alumniProfiles
-      .filter((p) => p.name.toLowerCase().includes(term))
+    const matchedNames = (alumniProfiles ?? [])
+      .filter((p) => (p?.name ?? '').toLowerCase().includes(term))
       .slice(0, 3)
       .map((p) => ({ type: 'Alumni', text: p.name, id: p.id }));
 
     const matchedCompanies = Array.from(
       new Set(
-        alumniProfiles
-          .filter((p) => p.company.toLowerCase().includes(term))
+        (alumniProfiles ?? [])
+          .filter((p) => (p?.company ?? '').toLowerCase().includes(term))
           .map((p) => p.company)
       )
     ).slice(0, 3).map((c) => ({ type: 'Company', text: c }));
 
     const matchedSkills = Array.from(
       new Set(
-        alumniProfiles
-          .flatMap((p) => p.skills)
-          .filter((s) => s.toLowerCase().includes(term))
+        (alumniProfiles ?? [])
+          .flatMap((p) => p?.skills ?? [])
+          .filter((s) => (s ?? '').toLowerCase().includes(term))
       )
     ).slice(0, 3).map((s) => ({ type: 'Skill', text: s }));
 
@@ -128,14 +129,15 @@ export const AlumniDirectoryPage: React.FC = () => {
 
   // Filtering Logic
   const filteredAlumni = useMemo(() => {
-    return alumniProfiles.filter((item) => {
+    return (alumniProfiles ?? []).filter((item) => {
+      if (!item) return false;
       // 1. Search Term (Name, Company, Designation, Skills, Thesis, Supervisor)
       if (filters.searchTerm.trim()) {
         const term = filters.searchTerm.toLowerCase();
-        const inName = item.name.toLowerCase().includes(term);
-        const inCompany = item.company.toLowerCase().includes(term);
-        const inDesignation = item.designation.toLowerCase().includes(term);
-        const inSkills = item.skills.some((s) => s.toLowerCase().includes(term));
+        const inName = (item.name ?? '').toLowerCase().includes(term);
+        const inCompany = (item.company ?? '').toLowerCase().includes(term);
+        const inDesignation = (item.designation ?? '').toLowerCase().includes(term);
+        const inSkills = (item.skills ?? []).some((s) => (s ?? '').toLowerCase().includes(term));
         const inThesis = item.thesisTitle?.toLowerCase().includes(term);
         const inSupervisor = item.thesisSupervisor?.toLowerCase().includes(term);
         if (!inName && !inCompany && !inDesignation && !inSkills && !inThesis && !inSupervisor) {
@@ -154,12 +156,12 @@ export const AlumniDirectoryPage: React.FC = () => {
       }
 
       // 4. Batch range
-      if (item.batchNumber < filters.batchMin || item.batchNumber > filters.batchMax) {
+      if ((item.batchNumber || 1) < filters.batchMin || (item.batchNumber || 1) > filters.batchMax) {
         return false;
       }
 
       // 5. CGPA
-      if (filters.cgpaMin > 0 && item.cgpa < filters.cgpaMin) {
+      if (filters.cgpaMin > 0 && (item.cgpa || 0) < filters.cgpaMin) {
         return false;
       }
 
@@ -182,7 +184,6 @@ export const AlumniDirectoryPage: React.FC = () => {
   const sortedAlumni = useMemo(() => {
     const list = [...filteredAlumni];
     if (sortBy === 'recommended') {
-      // Prioritize verified, high rating, and open to mentor
       return list.sort((a, b) => {
         const scoreA = (a.isVerified ? 10 : 0) + (a.mentoringAvailable ? 5 : 0) + (a.rating || 0);
         const scoreB = (b.isVerified ? 10 : 0) + (b.mentoringAvailable ? 5 : 0) + (b.rating || 0);
@@ -193,13 +194,13 @@ export const AlumniDirectoryPage: React.FC = () => {
       return list.sort((a, b) => (b.studentsConsulted || 0) - (a.studentsConsulted || 0));
     }
     if (sortBy === 'newest') {
-      return list.sort((a, b) => b.passingYear - a.passingYear);
+      return list.sort((a, b) => (b.passingYear || 0) - (a.passingYear || 0));
     }
     if (sortBy === 'rating') {
-      return list.sort((a, b) => b.rating - a.rating);
+      return list.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     }
     if (sortBy === 'name') {
-      return list.sort((a, b) => a.name.localeCompare(b.name));
+      return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
     return list;
   }, [filteredAlumni, sortBy]);
@@ -220,7 +221,7 @@ export const AlumniDirectoryPage: React.FC = () => {
       sector: 'All',
       departments: [],
       batchMin: 1,
-      batchMax: 16,
+      batchMax: 40,
       cgpaMin: 0,
       mentoringOnly: false,
       referralsOnly: false,
@@ -246,7 +247,7 @@ export const AlumniDirectoryPage: React.FC = () => {
               BAUST Alumni Directory
             </h1>
             <span className="text-xs px-2.5 py-1 rounded-full bg-navy/10 text-navy font-bold">
-              {alumniProfiles.length} Graduates
+              {alumniProfiles.length} Verified Alumni
             </span>
           </div>
           <p className="text-sm text-slate-600 mt-1">
@@ -513,7 +514,7 @@ export const AlumniDirectoryPage: React.FC = () => {
                               >
                                 {a.name}
                               </Link>
-                              <div className="text-[11px] text-slate-400">{a.location.split(',')[0]}</div>
+                              <div className="text-[11px] text-slate-400">{(a?.location ?? 'Bangladesh').split(',')[0]}</div>
                             </div>
                           </div>
                         </td>

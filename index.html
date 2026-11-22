@@ -9,9 +9,53 @@
     <meta property="og:description" content="Central Career Support, Mentorship & Administrative Network Platform for Bangladesh Army University of Science and Technology (BAUST)" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <base href="/" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Client-side SPA routing fallback & deep link redirect handler -->
+    <script>
+      (function() {
+        try {
+          // 1. Restore redirect from static host 404 handler (sessionStorage fallback)
+          var redirect = sessionStorage.getItem('spa_redirect');
+          if (redirect) {
+            sessionStorage.removeItem('spa_redirect');
+            var redirectUrl = new URL(redirect, window.location.origin);
+            var deepPath = redirectUrl.pathname + redirectUrl.search;
+            if (deepPath && deepPath !== '/' && deepPath !== '/index.html') {
+              window.history.replaceState(null, '', '/#' + deepPath);
+              return;
+            }
+          }
+
+          // 2. Handle URL query param deep link (e.g. /?p=/alumni/dashboard from 404.html)
+          var searchParams = new URLSearchParams(window.location.search);
+          var queryRoute = searchParams.get('p') || searchParams.get('r');
+          if (queryRoute) {
+            searchParams.delete('p');
+            searchParams.delete('r');
+            var remainingSearch = searchParams.toString() ? '?' + searchParams.toString() : '';
+            var target = queryRoute.startsWith('/') ? queryRoute : '/' + queryRoute;
+            window.history.replaceState(null, '', '/#' + target + remainingSearch);
+            return;
+          }
+
+          // 3. Handle direct URL paths (e.g. /alumni/dashboard on direct load or refresh)
+          var pathname = window.location.pathname;
+          if (pathname && pathname !== '/' && pathname !== '/index.html') {
+            var search = window.location.search || '';
+            // If hash is missing or empty, sync the direct pathname into the client router hash
+            if (!window.location.hash || window.location.hash === '#' || window.location.hash === '#/') {
+              window.history.replaceState(null, '', '/#' + pathname + search);
+            }
+          }
+        } catch (e) {
+          console.warn('SPA routing fallback note:', e);
+        }
+      })();
+    </script>
   </head>
   <body class="bg-[#F5F7FA] text-[#0F2A4A] antialiased selection:bg-[#C9A227]/20 selection:text-[#0F2A4A]">
     <div id="root"></div>

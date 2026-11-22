@@ -32,31 +32,106 @@ import {
 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { useDirectoryStore } from '../../../hooks/useDirectoryStore';
+import { useAuth } from '../../../context/AuthContext';
 import { DirectoryAlumniProfile, PrivacySetting, SkillProficiency } from '../../../types/directory';
 import { Department, JobSector, MentorshipTopic } from '../../../types';
+import { BAUST_DEPARTMENTS, BAUST_SECTORS, normalizeDepartment } from '../../../constants/baustDataModel';
 
 export const AlumniOwnProfilePage: React.FC = () => {
-  const { alumniProfiles, updateAlumniProfile, connections, respondConnectionRequest } = useDirectoryStore();
+  const { alumniProfiles, updateAlumniProfile, connections, respondConnectionRequest, getProfileById } = useDirectoryStore();
+  const { userProfile, updateUserProfile } = useAuth();
 
-  // For demo, logged-in alumni profile is Farhan Kabir (alm-1)
-  const currentAlumniId = 'alm-1';
-  const profile = useDirectoryStore().getProfileById(currentAlumniId) || alumniProfiles[0];
+  const currentAlumniId = userProfile?.id || userProfile?.uid || '';
+  const profile = currentAlumniId ? getProfileById(currentAlumniId) : undefined;
+
+  const buildFallbackProfile = (): DirectoryAlumniProfile => ({
+    id: currentAlumniId,
+    name: userProfile?.name || 'BAUST Alumni',
+    email: userProfile?.email || '',
+    role: 'alumni',
+    avatar: userProfile?.avatar || '',
+    department: normalizeDepartment(userProfile?.department),
+    batch: userProfile?.batch || '',
+    batchNumber: 1,
+    admissionYear: (userProfile?.passingYear || 2022) - 4,
+    passingYear: userProfile?.passingYear || 2022,
+    studentIdMasked: userProfile?.baustId ? `${String(userProfile.baustId).slice(0, 6)}***` : 'BAUST',
+    phone: userProfile?.phone || '',
+    bio: userProfile?.bio || '',
+    headline: userProfile?.headline || '',
+    isVerified: Boolean(userProfile?.isVerified || userProfile?.verificationStatus === 'approved'),
+    verifiedAlumniBadge: Boolean(userProfile?.verifiedAlumniBadge),
+    isFeatured: Boolean(userProfile?.isFeatured),
+    designation: userProfile?.designation || '',
+    company: userProfile?.company || '',
+    sector: (userProfile?.sector as JobSector) || 'Private',
+    location: userProfile?.location || '',
+    city: '',
+    country: 'Bangladesh',
+    cgpa: typeof userProfile?.cgpa === 'number' ? userProfile.cgpa : 0,
+    thesisTitle: '',
+    thesisSupervisor: '',
+    honors: [],
+    clubs: [],
+    scholarships: [],
+    education: [],
+    publications: [],
+    skillsWithLevels: [],
+    skills: Array.isArray(userProfile?.skills) ? userProfile.skills : [],
+    topExpertise: [],
+    experienceTimeline: [],
+    certifications: [],
+    interestedFields: [],
+    mentoringAvailable: Boolean(userProfile?.mentoringAvailable),
+    openToReferrals: false,
+    openToHiring: false,
+    mentorshipTopics: (Array.isArray(userProfile?.mentorshipTopics) ? userProfile.mentorshipTopics : []) as MentorshipTopic[],
+    availableSlots: Array.isArray(userProfile?.availableSlots) ? userProfile.availableSlots : [],
+    totalMentees: typeof userProfile?.totalMentees === 'number' ? userProfile.totalMentees : 0,
+    studentsConsulted: typeof userProfile?.totalMentees === 'number' ? userProfile.totalMentees : 0,
+    rating: typeof userProfile?.rating === 'number' ? userProfile.rating : 0,
+    reviewCount: 0,
+    linkedin: userProfile?.linkedin || '',
+    github: userProfile?.github || '',
+    privacy: {
+      cgpa: userProfile?.privacy?.cgpa || (userProfile?.profileVisibility === 'private' ? 'hidden' : 'public'),
+      email: userProfile?.privacy?.email || (userProfile?.hideEmail ? 'hidden' : 'public'),
+      phone: userProfile?.privacy?.phone || (userProfile?.hidePhone ? 'hidden' : 'public'),
+      location: userProfile?.privacy?.location || 'public',
+    },
+    stats: {
+      profileViewsThisMonth: 0,
+      searchAppearances: 0,
+      bookmarksCount: 0,
+      endorsementsReceived: 0,
+      monthlyViewHistory: [],
+    },
+    lastUpdated: new Date().toISOString().split('T')[0],
+  });
 
   // Tab State: 'edit' | 'privacy' | 'analytics' | 'connections'
   const [activeTab, setActiveTab] = useState<'edit' | 'privacy' | 'analytics' | 'connections'>('edit');
 
   // Local Form State for Draft Edits
-  const [formData, setFormData] = useState<DirectoryAlumniProfile>(profile);
+  const [formData, setFormData] = useState<DirectoryAlumniProfile>(() => profile || buildFallbackProfile());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [previewAsStudent, setPreviewAsStudent] = useState(false);
 
-  // Sync when profile in store updates
+  // Sync when profile in store or Firestore userProfile updates
   useEffect(() => {
-    if (profile) {
-      setFormData(profile);
-    }
-  }, [profile]);
+    const base = profile || buildFallbackProfile();
+    setFormData({
+      ...base,
+      name: userProfile?.name || base.name,
+      email: userProfile?.email || base.email,
+      department: (userProfile?.department as Department) || base.department,
+      batch: userProfile?.batch || base.batch,
+      designation: userProfile?.designation || base.designation,
+      company: userProfile?.company || base.company,
+      isVerified: userProfile ? Boolean(userProfile.isVerified || userProfile.verificationStatus === 'approved') : base.isVerified,
+    });
+  }, [profile, userProfile]);
 
   // Track draft modifications
   const handleChange = (field: keyof DirectoryAlumniProfile, value: any) => {
@@ -99,11 +174,49 @@ export const AlumniOwnProfilePage: React.FC = () => {
   }, [formData]);
 
   // Save changes handler
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateAlumniProfile(formData.id, formData);
+    const safeSkills = Array.isArray(formData.skills) ? formData.skills : [];
+    const safePrivacy = formData.privacy || {
+      cgpa: 'public',
+      email: 'students_only',
+      phone: 'connections_only',
+      location: 'public',
+    };
+    updateAlumniProfile(formData.id, {
+      ...formData,
+      name: userProfile?.name || formData.name,
+      email: userProfile?.email || formData.email,
+      department: normalizeDepartment(formData.department),
+    });
+
+    if (userProfile) {
+      await updateUserProfile({
+        department: normalizeDepartment(formData.department),
+        batch: formData.batch || userProfile.batch || '',
+        designation: formData.designation || '',
+        company: formData.company || '',
+        sector: (formData.sector as JobSector) || 'Private',
+        location: formData.location || '',
+        phone: formData.phone || '',
+        headline: formData.headline || '',
+        bio: formData.bio || '',
+        skills: safeSkills,
+        mentoringAvailable: Boolean(formData.mentoringAvailable),
+        hideEmail: safePrivacy.email === 'hidden',
+        hidePhone: safePrivacy.phone === 'hidden',
+        privacy: safePrivacy,
+        profileVisibility:
+          safePrivacy.cgpa === 'hidden'
+            ? 'private'
+            : safePrivacy.email === 'students_only'
+            ? 'students_only'
+            : 'public',
+      });
+    }
+
     setHasUnsavedChanges(false);
-    setSaveSuccessMsg('Profile changes saved successfully! Live directory updated.');
+    setSaveSuccessMsg('Profile changes & privacy preferences saved to Cloud Firestore.');
     setTimeout(() => setSaveSuccessMsg(''), 4000);
   };
 
@@ -120,7 +233,7 @@ export const AlumniOwnProfilePage: React.FC = () => {
       endorsements: []
     };
     const updatedWithLevels = [...(formData.skillsWithLevels || []), newSkill];
-    const updatedFlat = Array.from(new Set([...formData.skills, newSkillName.trim()]));
+    const updatedFlat = Array.from(new Set([...(formData.skills || []), newSkillName.trim()]));
     handleChange('skillsWithLevels', updatedWithLevels);
     handleChange('skills', updatedFlat);
     setNewSkillName('');
@@ -181,8 +294,46 @@ export const AlumniOwnProfilePage: React.FC = () => {
         </div>
       )}
 
+      {/* Live Verification Status Banner */}
+      {userProfile && (
+        <div
+          className={`p-4 rounded-2xl border text-xs flex items-center justify-between gap-3 ${
+            userProfile.verificationStatus === 'approved' || userProfile.isVerified
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : userProfile.verificationStatus === 'rejected'
+              ? 'bg-rose-50 border-rose-200 text-rose-900'
+              : 'bg-amber-50 border-amber-200 text-amber-900'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            {userProfile.verificationStatus === 'approved' || userProfile.isVerified ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+            )}
+            <div>
+              <div className="font-bold">
+                Account Verification:{' '}
+                {userProfile.verificationStatus === 'approved' || userProfile.isVerified
+                  ? 'Approved & Verified'
+                  : userProfile.verificationStatus === 'rejected'
+                  ? 'Rejected'
+                  : 'Pending Admin Approval'}
+              </div>
+              <p className="text-[11px] opacity-85">
+                {userProfile.verificationStatus === 'approved' || userProfile.isVerified
+                  ? `BAUST ID (${userProfile.baustId || 'Verified'}) is authenticated in Cloud Firestore.`
+                  : userProfile.verificationStatus === 'rejected'
+                  ? userProfile.rejectionReason || 'Contact BAUST Registrar Office.'
+                  : 'Waiting for BAUST Registrar approval — updates automatically in real time.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sensitive Academic Field Re-verification Warning */}
-      {formData.isReverificationPending && (
+      {formData?.isReverificationPending && (
         <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div>
@@ -367,14 +518,18 @@ export const AlumniOwnProfilePage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Full Name (English)
+                  Full Name (Registrar Verified · Locked)
                 </label>
                 <input
                   type="text"
-                  value={formData.name}
-                  onChange={(e) => handleChange('name', e.target.value)}
-                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-navy focus:outline-hidden"
+                  value={userProfile?.name || formData.name || ''}
+                  disabled
+                  readOnly
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Verified academic identity fields cannot be self-edited (#46).
+                </p>
               </div>
 
               <div>
@@ -419,16 +574,15 @@ export const AlumniOwnProfilePage: React.FC = () => {
                   Job Sector
                 </label>
                 <select
-                  value={formData.sector}
+                  value={formData.sector || 'Private'}
                   onChange={(e) => handleChange('sector', e.target.value as JobSector)}
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-navy focus:outline-hidden"
                 >
-                  <option value="Private">Private Sector / MNC</option>
-                  <option value="Government">Government / BCS Cadre</option>
-                  <option value="Abroad">Higher Study Abroad</option>
-                  <option value="Research">Research & Development</option>
-                  <option value="Business">Business & Entrepreneurship</option>
-                  <option value="Freelancing">Freelancing & Consulting</option>
+                  {BAUST_SECTORS.map((sec) => (
+                    <option key={sec} value={sec}>
+                      {sec}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -503,18 +657,15 @@ export const AlumniOwnProfilePage: React.FC = () => {
                   Department
                 </label>
                 <select
-                  value={formData.department}
+                  value={normalizeDepartment(formData.department)}
                   onChange={(e) => handleChange('department', e.target.value as Department)}
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-navy focus:outline-hidden"
                 >
-                  <option value="CSE">CSE</option>
-                  <option value="EEE">EEE</option>
-                  <option value="CE">CE</option>
-                  <option value="ME">ME</option>
-                  <option value="IPE">IPE</option>
-                  <option value="Textile">Textile</option>
-                  <option value="BBA">BBA</option>
-                  <option value="English">English</option>
+                  {BAUST_DEPARTMENTS.map((d) => (
+                    <option key={d.code} value={d.code}>
+                      {d.code} — {d.nameEn}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -721,7 +872,7 @@ export const AlumniOwnProfilePage: React.FC = () => {
               <div>
                 <div className="font-bold text-xs text-slate-800">Undergraduate CGPA Visibility</div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Your graduation result ({formData.cgpa.toFixed(2)} / 4.00)
+                  Your graduation result ({typeof formData?.cgpa === 'number' ? formData.cgpa.toFixed(2) : '0.00'} / 4.00)
                 </p>
               </div>
 
@@ -762,7 +913,7 @@ export const AlumniOwnProfilePage: React.FC = () => {
               <div>
                 <div className="font-bold text-xs text-slate-800">Phone & WhatsApp Number</div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {formData.phone || '+880 1712-345678'}
+                  {formData.phone || 'Not provided'}
                 </p>
               </div>
 
@@ -817,23 +968,23 @@ export const AlumniOwnProfilePage: React.FC = () => {
             <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs">
               <div className="text-xs text-slate-400 font-medium">Profile Views This Month</div>
               <div className="text-2xl font-extrabold text-slate-900 mt-1">
-                {formData.stats?.profileViewsThisMonth || 142}
+                {formData.stats?.profileViewsThisMonth ?? 0}
               </div>
-              <div className="text-[11px] text-emerald-600 font-semibold mt-0.5">+18% vs last month</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Live directory visits</div>
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs">
               <div className="text-xs text-slate-400 font-medium">Student Search Appearances</div>
               <div className="text-2xl font-extrabold text-navy mt-1">
-                {formData.stats?.searchAppearances || 389}
+                {formData.stats?.searchAppearances ?? 0}
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Top rank for 'Fintech'</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Across directory filters</div>
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs">
               <div className="text-xs text-slate-400 font-medium">Bookmarked by Students</div>
               <div className="text-2xl font-extrabold text-amber-600 mt-1">
-                {formData.stats?.bookmarksCount || 45}
+                {formData.stats?.bookmarksCount ?? 0}
               </div>
               <div className="text-[11px] text-slate-500 mt-0.5">In student watchlists</div>
             </div>
@@ -841,7 +992,7 @@ export const AlumniOwnProfilePage: React.FC = () => {
             <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs">
               <div className="text-xs text-slate-400 font-medium">Peer Endorsements</div>
               <div className="text-2xl font-extrabold text-emerald-700 mt-1">
-                {formData.stats?.endorsementsReceived || 27}
+                {formData.stats?.endorsementsReceived ?? 0}
               </div>
               <div className="text-[11px] text-slate-500 mt-0.5">Verified skill proofs</div>
             </div>
@@ -853,34 +1004,34 @@ export const AlumniOwnProfilePage: React.FC = () => {
               <BarChart2 className="w-4 h-4 text-navy" />
               Monthly Profile Views Trajectory
             </h3>
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={formData.stats?.monthlyViewHistory || [
-                    { month: 'Oct', views: 88 },
-                    { month: 'Nov', views: 115 },
-                    { month: 'Dec', views: 120 },
-                    { month: 'Jan', views: 138 },
-                    { month: 'Feb', views: 142 }
-                  ]}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                >
-                  <defs>
-                    <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0F2A4A" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#0F2A4A" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    formatter={(value: any) => [`${value} views`, 'Student Views']}
-                    contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
-                  />
-                  <Area type="monotone" dataKey="views" stroke="#0F2A4A" strokeWidth={2} fillOpacity={1} fill="url(#colorViews)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            {(formData.stats?.monthlyViewHistory ?? []).length === 0 ? (
+              <div className="h-48 flex items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 text-xs text-slate-500">
+                Monthly view history will populate automatically as students visit your directory profile.
+              </div>
+            ) : (
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={formData.stats?.monthlyViewHistory}
+                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0F2A4A" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#0F2A4A" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      formatter={(value: any) => [`${value} views`, 'Student Views']}
+                      contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
+                    />
+                    <Area type="monotone" dataKey="views" stroke="#0F2A4A" strokeWidth={2} fillOpacity={1} fill="url(#colorViews)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         </div>
       )}

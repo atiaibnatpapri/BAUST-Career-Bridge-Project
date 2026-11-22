@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   FileText,
   Clock,
@@ -17,6 +17,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useAdminDeskStore } from '../../../hooks/useAdminDeskStore';
+import { BAUST_DEPARTMENTS, DOC_STAGES } from '../../../constants/baustDataModel';
 import { useApp } from '../../../context/AppContext';
 import { ServiceCard } from '../../../components/admindesk/ServiceCard';
 import { RequestStepperModal } from '../../../components/admindesk/RequestStepperModal';
@@ -58,12 +59,15 @@ const FAQS = [
 
 export const AlumniAdminDeskPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as TabKey) || 'services';
+  const deskBase = location.pathname.startsWith('/student') ? '/student' : '/alumni';
 
   const {
     services,
     requests,
+    documentRequests,
     notices,
     vacancies,
     applications,
@@ -72,7 +76,7 @@ export const AlumniAdminDeskPage: React.FC = () => {
   } = useAdminDeskStore();
 
   const { currentUser } = useApp();
-  const currentUserId = currentUser?.id || 'alm-1';
+  const currentUserId = currentUser?.id || '';
 
   // Modal states
   const [isStepperOpen, setIsStepperOpen] = useState(false);
@@ -94,9 +98,10 @@ export const AlumniAdminDeskPage: React.FC = () => {
     setSearchParams({ tab });
   };
 
-  // User's own requests
+  // User's own requests (scoped cleanly to current user)
   const userRequests = useMemo(() => {
-    return requests.filter(r => r.alumniId === currentUserId || r.alumniName.toLowerCase().includes('farhan'));
+    if (!currentUserId) return [];
+    return requests.filter(r => r.alumniId === currentUserId);
   }, [requests, currentUserId]);
 
   // Filtered Services
@@ -166,7 +171,8 @@ export const AlumniAdminDeskPage: React.FC = () => {
 
   // User applications
   const userApplications = useMemo(() => {
-    return applications.filter(a => a.alumniId === currentUserId || a.alumniName.toLowerCase().includes('farhan'));
+    if (!currentUserId) return [];
+    return applications.filter(a => a.alumniId === currentUserId);
   }, [applications, currentUserId]);
 
   const handleOpenOrderModal = (service?: AdminDeskService) => {
@@ -363,6 +369,57 @@ export const AlumniAdminDeskPage: React.FC = () => {
         {/* TAB 1: SERVICES CATALOG */}
         {activeTab === 'services' && (
           <div className="mt-6 space-y-6">
+            {/* Quick Dedicated Document Service Routes */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <Link
+                to={`${deskBase}/document-requests/new`}
+                className="bg-white hover:border-[#0F2A4A] border border-gray-200 rounded-xl p-3.5 transition-all shadow-xs flex flex-col justify-between gap-1.5"
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#C9A227]">Quick Form</span>
+                <span className="text-xs font-bold text-[#0F2A4A] flex items-center justify-between">
+                  New Request <ChevronRight className="w-3.5 h-3.5" />
+                </span>
+              </Link>
+              <Link
+                to={`${deskBase}/document-requests/transcript`}
+                className="bg-white hover:border-[#0F2A4A] border border-gray-200 rounded-xl p-3.5 transition-all shadow-xs flex flex-col justify-between gap-1.5"
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Academic</span>
+                <span className="text-xs font-bold text-[#0F2A4A] flex items-center justify-between">
+                  Transcript Form <ChevronRight className="w-3.5 h-3.5" />
+                </span>
+              </Link>
+              <Link
+                to={`${deskBase}/document-requests/certificate`}
+                className="bg-white hover:border-[#0F2A4A] border border-gray-200 rounded-xl p-3.5 transition-all shadow-xs flex flex-col justify-between gap-1.5"
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700">Registrar</span>
+                <span className="text-xs font-bold text-[#0F2A4A] flex items-center justify-between">
+                  Certificate Form <ChevronRight className="w-3.5 h-3.5" />
+                </span>
+              </Link>
+              <Link
+                to={`${deskBase}/document-requests/clearance`}
+                className="bg-white hover:border-[#0F2A4A] border border-gray-200 rounded-xl p-3.5 transition-all shadow-xs flex flex-col justify-between gap-1.5"
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Fees & Policy</span>
+                <span className="text-xs font-bold text-[#0F2A4A] flex items-center justify-between">
+                  Clearance & Fees <ChevronRight className="w-3.5 h-3.5" />
+                </span>
+              </Link>
+              <Link
+                to={`${deskBase}/document-requests/history`}
+                className="bg-white hover:border-[#0F2A4A] border border-gray-200 rounded-xl p-3.5 transition-all shadow-xs flex flex-col justify-between gap-1.5"
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">
+                  {documentRequests.length} Synced
+                </span>
+                <span className="text-xs font-bold text-[#0F2A4A] flex items-center justify-between">
+                  Request History <ChevronRight className="w-3.5 h-3.5" />
+                </span>
+              </Link>
+            </div>
+
             <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
               <div className="relative grow max-w-md">
                 <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -463,17 +520,17 @@ export const AlumniAdminDeskPage: React.FC = () => {
             ) : (
               <div className="space-y-4">
                 {filteredRequests.map(req => {
-                  const isActionReq = req.status === 'Action Required';
+                  const stageIdx = typeof req.currentStageIndex === 'number' ? req.currentStageIndex : 1;
+                  const stageDef = DOC_STAGES[stageIdx] || DOC_STAGES[1];
+                  const isRejected = req.status === 'Rejected';
+                  const isCancelled = req.status === 'Cancelled';
+                  const isDelivered = req.status === 'Delivered' || req.stages?.[5]?.status === 'done';
 
                   return (
                     <div
                       key={req.id}
-                      onClick={() => navigate(`/alumni/admin-desk/requests/${req.id}`)}
-                      className={`bg-white p-5 rounded-2xl border transition-all hover:shadow-md cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                        isActionReq
-                          ? 'border-amber-300 bg-linear-to-r from-amber-50/40 to-white'
-                          : 'border-gray-200 hover:border-blue-200'
-                      }`}
+                      onClick={() => navigate(`${deskBase}/admin-desk/requests/${req.id}`)}
+                      className="bg-white p-5 rounded-2xl border border-gray-200 hover:border-[#0F2A4A]/40 transition-all hover:shadow-md cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4"
                     >
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -482,26 +539,25 @@ export const AlumniAdminDeskPage: React.FC = () => {
                           </span>
                           <span
                             className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
-                              req.status === 'Action Required'
-                                ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
-                                : req.status === 'Delivered'
+                              isDelivered
                                 ? 'bg-emerald-100 text-emerald-800'
-                                : req.status === 'Ready'
-                                ? 'bg-green-100 text-green-800'
-                                : req.status === 'Rejected'
-                                ? 'bg-red-100 text-red-800'
+                                : isRejected
+                                ? 'bg-rose-100 text-rose-800'
+                                : isCancelled
+                                ? 'bg-slate-100 text-slate-600'
                                 : 'bg-blue-100 text-blue-800'
                             }`}
                           >
-                            {req.status}
+                            {isRejected
+                              ? 'Rejected'
+                              : isCancelled
+                              ? 'Cancelled'
+                              : isDelivered
+                              ? 'Step 6 of 6: Delivered'
+                              : `Step ${stageIdx + 1} of 6: ${stageDef.label}`}
                           </span>
-                          {(req.urgency === 'Urgent' || req.urgency === 'Express') && (
-                            <span className="text-[10px] font-extrabold uppercase bg-red-100 text-red-700 px-2 py-0.5 rounded-md">
-                              {req.urgency} SLA
-                            </span>
-                          )}
                           <span className="text-xs text-gray-500">
-                            Requested: {req.submittedAt}
+                            Submitted: {req.submittedAt}
                           </span>
                         </div>
 
@@ -531,7 +587,7 @@ export const AlumniAdminDeskPage: React.FC = () => {
                         <button
                           onClick={e => {
                             e.stopPropagation();
-                            navigate(`/alumni/admin-desk/requests/${req.id}`);
+                            navigate(`${deskBase}/admin-desk/requests/${req.id}`);
                           }}
                           className="px-4 py-2 bg-[#0F2A4A] hover:bg-[#1a3d66] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-xs"
                         >
@@ -583,9 +639,9 @@ export const AlumniAdminDeskPage: React.FC = () => {
         {activeTab === 'vacancies' && (
           <div className="mt-6 space-y-6">
             <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-bold text-gray-600 uppercase">Filter Department:</span>
-                {['All', 'CSE', 'EEE', 'ME', 'BBA'].map(dept => (
+                {['All', ...BAUST_DEPARTMENTS.map((d) => d.code)].map(dept => (
                   <button
                     key={dept}
                     onClick={() => setVacancyDeptFilter(dept)}
@@ -785,7 +841,7 @@ export const AlumniAdminDeskPage: React.FC = () => {
         onClose={() => setIsStepperOpen(false)}
         preSelectedService={selectedServiceForOrder}
         onSuccessTrack={trackId => {
-          navigate(`/alumni/admin-desk/requests/${trackId}`);
+          navigate(`${deskBase}/admin-desk/requests/${trackId}`);
         }}
       />
 

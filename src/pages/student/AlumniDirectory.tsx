@@ -12,6 +12,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Avatar } from '../../components/ui/Avatar';
 import { Input, Select } from '../../components/ui/Input';
 import { JobSector, Department } from '../../types';
+import { BAUST_DEPARTMENTS, BAUST_SECTORS } from '../../constants/baustDataModel';
 import { 
   Search, 
   Filter, 
@@ -49,18 +50,20 @@ export const AlumniDirectory: React.FC = () => {
     return ['All', ...Array.from(set).sort()];
   }, [alumniList]);
 
-  const departments = ['All', 'CSE', 'EEE', 'CE', 'ME', 'IPE', 'Textile', 'BBA', 'English'];
-  const sectors = ['All', 'Government', 'Private', 'Abroad', 'Research', 'Business'];
+  const departments = ['All', ...BAUST_DEPARTMENTS.map((d) => d.code)];
+  const sectors = ['All', ...BAUST_SECTORS];
 
   // Filter Logic
   const filteredAlumni = useMemo(() => {
-    return alumniList.filter((item) => {
+    return (alumniList ?? []).filter((item) => {
+      if (!item) return false;
+      const q = (searchTerm ?? '').toLowerCase();
       const matchesSearch =
-        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.designation.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.skills.some((s) => s.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        item.location.toLowerCase().includes(searchTerm.toLowerCase());
+        (item.name ?? '').toLowerCase().includes(q) ||
+        (item.company ?? '').toLowerCase().includes(q) ||
+        (item.designation ?? '').toLowerCase().includes(q) ||
+        (item.skills ?? []).some((s) => (s ?? '').toLowerCase().includes(q)) ||
+        (item.location ?? '').toLowerCase().includes(q);
 
       const matchesSector = selectedSector === 'All' || item.sector === selectedSector;
       const matchesDept = selectedDepartment === 'All' || item.department === selectedDepartment;
@@ -278,7 +281,7 @@ export const AlumniDirectory: React.FC = () => {
                     variant={
                       alumni.sector === 'Government'
                         ? 'army'
-                        : alumni.sector === 'Abroad'
+                        : alumni.sector === 'Higher Studies / Abroad' || alumni.sector === 'Abroad'
                         ? 'gold'
                         : alumni.sector === 'Research'
                         ? 'approved'
@@ -308,12 +311,12 @@ export const AlumniDirectory: React.FC = () => {
                   <span>·</span>
                   <span className="truncate flex items-center gap-0.5">
                     <MapPin className="w-3 h-3" />
-                    {alumni.location.split(',')[0]}
+                    {(alumni?.location ?? 'Bangladesh').split(',')[0]}
                   </span>
                 </div>
 
                 <div className="flex flex-wrap gap-1 pt-1">
-                  {alumni.skills.slice(0, 3).map((skill, sIdx) => (
+                  {(alumni?.skills ?? []).slice(0, 3).map((skill, sIdx) => (
                     <span
                       key={sIdx}
                       className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium"
@@ -321,7 +324,7 @@ export const AlumniDirectory: React.FC = () => {
                       {skill}
                     </span>
                   ))}
-                  {alumni.skills.length > 3 && (
+                  {(alumni?.skills ?? []).length > 3 && (
                     <span className="text-[10px] text-slate-400 px-1 py-0.5">
                       +{alumni.skills.length - 3}
                     </span>

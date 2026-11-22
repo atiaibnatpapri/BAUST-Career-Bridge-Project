@@ -21,7 +21,7 @@ export const AlumniQrCardModal: React.FC<AlumniQrCardModalProps> = ({
   const [copied, setCopied] = useState(false);
   if (!isOpen) return null;
 
-  const profileUrl = `${window.location.origin}/student/directory/${alumnus.id}`;
+  const profileUrl = `${window.location.origin}/#/student/directory/${alumnus.id}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(profileUrl);

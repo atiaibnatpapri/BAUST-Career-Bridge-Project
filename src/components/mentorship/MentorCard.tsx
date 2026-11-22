@@ -61,14 +61,17 @@ export const MentorCard: React.FC<MentorCardProps> = ({
     switch (sector) {
       case 'Government':
         return <Badge variant="army">{sector}</Badge>;
+      case 'Higher Studies / Abroad':
       case 'Higher Study':
-        return <Badge variant="gold">Higher Study</Badge>;
       case 'Abroad':
-        return <Badge variant="gold">Abroad</Badge>;
+        return <Badge variant="gold">{sector}</Badge>;
       case 'Research':
         return <Badge variant="in-progress">Research</Badge>;
       case 'Freelancing':
         return <Badge variant="ready">Freelancing</Badge>;
+      case 'MNC':
+        return <Badge variant="approved">MNC</Badge>;
+      case 'Business':
       case 'Business / Entrepreneurship':
         return <Badge variant="navy">Business</Badge>;
       default:

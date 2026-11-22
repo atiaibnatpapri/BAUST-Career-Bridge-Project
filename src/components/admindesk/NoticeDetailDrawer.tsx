@@ -16,6 +16,7 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import { NoticeItem } from '../../types/admindesk';
+import { downloadTextDocument } from '../../utils/download';
 
 interface NoticeDetailDrawerProps {
   isOpen: boolean;
@@ -130,8 +131,22 @@ export const NoticeDetailDrawer: React.FC<NoticeDetailDrawerProps> = ({
                       </div>
                     </div>
                     <button
-                      onClick={() => alert(`Downloading attachment: ${att.name}`)}
-                      className="p-2 rounded-lg bg-white border border-slate-200 text-navy hover:bg-slate-100 font-bold flex items-center gap-1"
+                      type="button"
+                      onClick={() => {
+                        const baseName = att.name.replace(/\.[^.]+$/, '');
+                        downloadTextDocument(
+                          `${baseName}.txt`,
+                          `BAUST Official Notice Circular Attachment\n` +
+                            `========================================\n` +
+                            `Notice: ${notice.title}\n` +
+                            `Category: ${notice.category}\n` +
+                            `Published: ${notice.publishedAt}\n` +
+                            `Attachment: ${att.name} (${att.size})\n\n` +
+                            `${notice.content}\n`
+                        );
+                      }}
+                      className="p-2 rounded-lg bg-white border border-slate-200 text-navy hover:bg-slate-100 font-bold flex items-center gap-1 cursor-pointer"
+                      aria-label={`Download ${att.name}`}
                     >
                       <Download className="w-3.5 h-3.5" />
                     </button>

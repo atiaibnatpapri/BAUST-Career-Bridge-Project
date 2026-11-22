@@ -4,9 +4,11 @@
  */
 
 import React, { useState } from 'react';
-import { UserPlus, X, Send, CheckCircle2 } from 'lucide-react';
+import { UserPlus, X, Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { DirectoryAlumniProfile } from '../../types/directory';
-import { useDirectoryStore } from '../../hooks/useDirectoryStore';
+import { useApp } from '../../context/AppContext';
+import { MentorshipTopic } from '../../types';
+import { normalizeDepartment } from '../../constants/baustDataModel';
 
 interface ConnectRequestModalProps {
   isOpen: boolean;
@@ -14,36 +16,68 @@ interface ConnectRequestModalProps {
   alumnus: DirectoryAlumniProfile;
 }
 
+const PURPOSE_TOPIC_MAP: Record<
+  'Career Advice' | 'Referral Inquiry' | 'Higher Study Guidance' | 'Networking',
+  MentorshipTopic
+> = {
+  'Career Advice': 'Career Guidance',
+  'Referral Inquiry': 'Interview Prep',
+  'Higher Study Guidance': 'Higher Studies',
+  Networking: 'Skill Roadmap',
+};
+
 export const ConnectRequestModal: React.FC<ConnectRequestModalProps> = ({
   isOpen,
   onClose,
-  alumnus
+  alumnus,
 }) => {
-  const { sendConnectionRequest } = useDirectoryStore();
-  const [purpose, setPurpose] = useState<'Career Advice' | 'Referral Inquiry' | 'Higher Study Guidance' | 'Networking'>('Career Advice');
+  const { currentUser, requestMentorship } = useApp();
+  const [purpose, setPurpose] = useState<
+    'Career Advice' | 'Referral Inquiry' | 'Higher Study Guidance' | 'Networking'
+  >('Career Advice');
   const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    sendConnectionRequest({
-      studentId: 'stu-current',
-      studentName: 'Tanvir Hossain Fahim',
-      studentEmail: 'tanvir.fahim@baust.edu.bd',
-      studentDept: 'CSE',
-      studentBatch: '10th Batch',
-      studentAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-      alumniId: alumnus.id,
-      purpose,
-      note: note.trim() || `Assalamu Alaikum, I would like to connect with you regarding ${purpose.toLowerCase()}.`
-    });
-    setIsSuccess(true);
-    setTimeout(() => {
-      setIsSuccess(false);
-      onClose();
-    }, 1800);
+    if (!currentUser?.id || submitting) return;
+    setErrorMsg(null);
+    setSubmitting(true);
+    try {
+      const res = await requestMentorship({
+        studentId: currentUser.id,
+        studentName: currentUser.name,
+        studentDept: normalizeDepartment((currentUser as any).department),
+        studentBatch: (currentUser as any).batch || '',
+        studentAvatar: currentUser.avatar || '',
+        alumniId: alumnus.id,
+        alumniName: alumnus.name,
+        alumniCompany: alumnus.company || 'BAUST Network',
+        topic: PURPOSE_TOPIC_MAP[purpose],
+        note: `[${purpose}] ${
+          note.trim() ||
+          `Assalamu Alaikum, I would like to connect with you regarding ${purpose.toLowerCase()}.`
+        }`,
+        preferredDate: 'Flexible',
+        preferredTime: 'To be scheduled',
+      });
+      if (!res.success) {
+        setErrorMsg(res.error || 'Could not send mentorship/connection request.');
+        return;
+      }
+      setIsSuccess(true);
+      setNote('');
+      setTimeout(() => {
+        setIsSuccess(false);
+        onClose();
+      }, 1500);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -53,7 +87,7 @@ export const ConnectRequestModal: React.FC<ConnectRequestModalProps> = ({
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-emerald-50/60">
           <div className="flex items-center gap-2 text-emerald-900">
             <UserPlus className="w-5 h-5 text-emerald-700" />
-            <h3 className="font-bold text-sm">Send Connection Invitation</h3>
+            <h3 className="font-bold text-sm">Send Connection / Mentorship Request</h3>
           </div>
           <button
             onClick={onClose}
@@ -66,9 +100,9 @@ export const ConnectRequestModal: React.FC<ConnectRequestModalProps> = ({
         {isSuccess ? (
           <div className="p-8 text-center space-y-3">
             <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-600 animate-bounce" />
-            <h4 className="font-bold text-slate-800 text-base">Invitation Sent!</h4>
+            <h4 className="font-bold text-slate-800 text-base">Request Sent!</h4>
             <p className="text-xs text-slate-500">
-              Your connection invitation has been sent to {alumnus.name}. They will receive an in-app notification in their alumni portal.
+              Your request has been saved and sent to {alumnus.name}. They will receive an instant notification in their alumni portal.
             </p>
           </div>
         ) : (
@@ -81,9 +115,18 @@ export const ConnectRequestModal: React.FC<ConnectRequestModalProps> = ({
               />
               <div className="text-xs">
                 <div className="font-bold text-slate-900">{alumnus.name}</div>
-                <div className="text-slate-500">{alumnus.designation} at {alumnus.company}</div>
+                <div className="text-slate-500">
+                  {alumnus.designation} at {alumnus.company}
+                </div>
               </div>
             </div>
+
+            {errorMsg && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -124,10 +167,11 @@ export const ConnectRequestModal: React.FC<ConnectRequestModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="text-xs px-4 py-2 rounded-xl bg-[#2E5E3E] text-white font-bold hover:bg-[#234930] transition-colors shadow-xs flex items-center gap-1.5"
+                disabled={submitting}
+                className="text-xs px-4 py-2 rounded-xl bg-[#2E5E3E] text-white font-bold hover:bg-[#234930] transition-colors shadow-xs flex items-center gap-1.5 disabled:opacity-60"
               >
                 <Send className="w-3.5 h-3.5" />
-                Send Invitation
+                {submitting ? 'Sending...' : 'Send Request'}
               </button>
             </div>
           </form>

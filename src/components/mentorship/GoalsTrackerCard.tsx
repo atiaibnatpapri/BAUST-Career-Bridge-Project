@@ -12,6 +12,7 @@ import { Input, Select } from '../ui/Input';
 import { Target, Award, Plus, CheckCircle2, TrendingUp, Sparkles } from 'lucide-react';
 
 import { useMentorshipStore } from '../../hooks/useMentorshipStore';
+import { useAuth } from '../../context/AuthContext';
 
 export interface GoalsTrackerCardProps {
   goals?: MentorshipGoal[];
@@ -29,6 +30,7 @@ export const GoalsTrackerCard: React.FC<GoalsTrackerCardProps> = ({
   reviewedCVCount: propReviewedCVCount,
 }) => {
   const store = useMentorshipStore();
+  const { firebaseUser } = useAuth();
   const goals = propGoals || store.goals;
   const onCreateGoal = propCreateGoal || store.createGoal;
   const onUpdateProgress = propUpdateProgress || store.updateGoalProgress;
@@ -49,7 +51,7 @@ export const GoalsTrackerCard: React.FC<GoalsTrackerCardProps> = ({
     e.preventDefault();
     if (!title.trim()) return;
     onCreateGoal({
-      studentId: 'std-1',
+      studentId: firebaseUser?.uid || '',
       title,
       targetDate,
       category,

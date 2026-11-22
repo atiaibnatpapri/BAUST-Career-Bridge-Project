@@ -45,15 +45,6 @@ export const MockCallModal: React.FC<MockCallModalProps> = ({
   onToggleActionItem,
 }) => {
   const store = useMentorshipStore();
-  if (!isOpen) return null;
-
-  const handleEndCallAction = onEndCall || onClose;
-  const handleUpdateNotesAction =
-    onUpdateNotes || ((notes: string) => store.updateSessionNotes(session.id, notes));
-  const handleAddActionAction =
-    onAddActionItem || ((text: string) => store.addActionItem(session.id, text));
-  const handleToggleActionAction =
-    onToggleActionItem || ((id: string) => store.toggleActionItem(session.id, id));
 
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(true);
@@ -65,11 +56,22 @@ export const MockCallModal: React.FC<MockCallModalProps> = ({
 
   // Running call timer
   useEffect(() => {
+    if (!isOpen) return;
     const timer = setInterval(() => {
       setSeconds((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleEndCallAction = onEndCall || onClose;
+  const handleUpdateNotesAction =
+    onUpdateNotes || ((notes: string) => store.updateSessionNotes(session.id, notes));
+  const handleAddActionAction =
+    onAddActionItem || ((text: string) => store.addActionItem(session.id, text));
+  const handleToggleActionAction =
+    onToggleActionItem || ((id: string) => store.toggleActionItem(session.id, id));
 
   const formatTime = (totalSec: number) => {
     const mins = Math.floor(totalSec / 60);

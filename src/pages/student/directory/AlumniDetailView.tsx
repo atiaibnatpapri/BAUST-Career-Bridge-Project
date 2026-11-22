@@ -42,7 +42,7 @@ export const AlumniDetailView: React.FC = () => {
   const navigate = useNavigate();
   const { alumniProfiles, isAlumniSaved, toggleSaveAlumni } = useDirectoryStore();
 
-  const alumnus = alumniProfiles.find((p) => p.id === id) || alumniProfiles[0];
+  const alumnus = alumniProfiles.find((p) => p.id === id);
   const isSaved = isAlumniSaved(alumnus?.id || '');
 
   // Modals
@@ -120,14 +120,19 @@ export const AlumniDetailView: React.FC = () => {
               className="absolute inset-0 w-full h-full object-cover opacity-25 mix-blend-overlay"
             />
           )}
-          <div className="absolute top-4 right-4 flex items-center gap-2">
+          <div className="absolute top-4 right-4 flex flex-wrap items-center justify-end gap-2">
+            {alumnus.isFeatured && (
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-400 text-slate-900 shadow-xs">
+                Featured Alumni
+              </span>
+            )}
             <span className="px-3 py-1 rounded-full text-xs font-bold bg-white/20 text-white backdrop-blur-md shadow-xs">
               {alumnus.sector} Sector
             </span>
-            {alumnus.isVerified && (
+            {(alumnus.verifiedAlumniBadge || alumnus.isVerified) && (
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500 text-white flex items-center gap-1 shadow-xs">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                BAUST Verified
+                {alumnus.verifiedAlumniBadge ? 'Verified Alumni' : 'BAUST Verified'}
               </span>
             )}
           </div>
@@ -241,7 +246,7 @@ export const AlumniDetailView: React.FC = () => {
               {alumnus.mentoringAvailable && (
                 <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold flex items-center gap-1.5">
                   <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  Open to Mentorship ({alumnus.studentsConsulted || 40}+ students consulted)
+                  Open to Mentorship ({alumnus.studentsConsulted ?? 0} students consulted)
                 </span>
               )}
               {alumnus.openToReferrals && (
@@ -292,7 +297,7 @@ export const AlumniDetailView: React.FC = () => {
                 <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Graduation CGPA</div>
                 {canSeeCgpa ? (
                   <div className="text-sm font-bold text-amber-900 mt-0.5 flex items-center gap-1">
-                    <span>{alumnus.cgpa.toFixed(2)}</span>
+                    <span>{typeof alumnus.cgpa === 'number' ? alumnus.cgpa.toFixed(2) : '0.00'}</span>
                     <span className="text-xs font-normal text-slate-400">/ 4.00</span>
                   </div>
                 ) : (
@@ -402,7 +407,7 @@ export const AlumniDetailView: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-slate-900">
-                    Skills & Verified Endorsements ({alumnus.stats?.endorsementsReceived || 20}+)
+                    Skills & Verified Endorsements ({alumnus.stats?.endorsementsReceived ?? 0})
                   </h2>
                   <p className="text-xs text-slate-500">Peer validated by BAUST students and fellow graduates</p>
                 </div>
@@ -507,11 +512,11 @@ export const AlumniDetailView: React.FC = () => {
                     <span className="font-bold text-emerald-900">Active Mentor</span>
                     <span className="flex items-center gap-1 text-amber-700 font-bold">
                       <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                      {alumnus.rating.toFixed(2)} ({alumnus.reviewCount} reviews)
+                      {typeof alumnus.rating === 'number' ? alumnus.rating.toFixed(2) : '0.00'} ({alumnus.reviewCount || 0} reviews)
                     </span>
                   </div>
                   <div className="text-emerald-800">
-                    Consulted <span className="font-bold">{alumnus.studentsConsulted || 50}+ BAUST students</span>
+                    Consulted <span className="font-bold">{alumnus.studentsConsulted ?? 0} BAUST students</span>
                   </div>
                 </div>
 
@@ -586,6 +591,30 @@ export const AlumniDetailView: React.FC = () => {
             <h3 className="font-bold text-slate-900 uppercase tracking-wider mb-1">
               Contact & Social Channels
             </h3>
+            {alumnus._privacyRestricted && (
+              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5 shrink-0" />
+                <span>This member has enabled Private Profile visibility.</span>
+              </div>
+            )}
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-500">Email:</span>
+                <span className="font-mono font-semibold text-slate-800 truncate">
+                  {alumnus._hiddenEmail || isEmailStudentsOnly
+                    ? 'Hidden by privacy preference'
+                    : alumnus.email || '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-500">Phone:</span>
+                <span className="font-mono font-semibold text-slate-800 truncate">
+                  {alumnus._hiddenPhone
+                    ? 'Hidden by privacy preference'
+                    : alumnus.phone || 'Not shared'}
+                </span>
+              </div>
+            </div>
             {alumnus.linkedin && (
               <a
                 href={alumnus.linkedin}

@@ -52,6 +52,7 @@ export const CVReviewFormModal: React.FC<CVReviewFormModalProps> = ({
   );
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   if (!review) return null;
 
@@ -114,13 +115,36 @@ export const CVReviewFormModal: React.FC<CVReviewFormModalProps> = ({
             </span>
             <button
               type="button"
-              onClick={() => alert(`Simulated preview of ${review.cvFileName}`)}
-              className="text-xs font-semibold text-[#0F2A4A] hover:underline"
+              onClick={() => setShowPreview((prev) => !prev)}
+              className="text-xs font-semibold text-[#0F2A4A] hover:underline cursor-pointer"
             >
-              Open File
+              {showPreview ? 'Hide Preview' : 'Open File'}
             </button>
           </div>
         </div>
+
+        {showPreview && (
+          <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2 text-xs">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div className="flex items-center gap-2 font-bold text-[#0F2A4A]">
+                <FileText className="w-4 h-4" />
+                <span>{review.cvFileName}</span>
+              </div>
+              <span className="text-[11px] text-slate-400">{review.cvFileSize} · {review.version.toUpperCase()}</span>
+            </div>
+            <p className="text-slate-600 leading-relaxed">
+              <strong>Candidate:</strong> {review.studentName} ({review.studentDept} · {review.studentBatch})
+            </p>
+            <p className="text-slate-600 leading-relaxed">
+              <strong>Target Role:</strong> {review.targetRole} ({review.targetSector})
+            </p>
+            {review.studentNotes && (
+              <p className="text-slate-600 leading-relaxed">
+                <strong>Student Notes:</strong> {review.studentNotes}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Overall Score Slider */}
         <div className="p-4 rounded-xl bg-gradient-to-r from-[#0F2A4A]/10 to-[#2E5E3E]/10 border border-[#0F2A4A]/20 flex items-center justify-between gap-4">

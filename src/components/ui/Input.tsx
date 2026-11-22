@@ -38,6 +38,7 @@ export const Input: React.FC<InputProps> = ({
         )}
         <input
           id={inputId}
+          aria-invalid={Boolean(error)}
           className={`w-full bg-white border text-sm rounded-xl px-3.5 py-2.5 text-slate-900 transition-colors placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F2A4A] focus:border-transparent ${
             leftIcon ? 'pl-10' : ''
           } ${
@@ -48,7 +49,11 @@ export const Input: React.FC<InputProps> = ({
           {...props}
         />
       </div>
-      {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
+      {error && (
+        <p role="alert" className="text-xs text-rose-600 font-medium">
+          {error}
+        </p>
+      )}
       {helperText && !error && <p className="text-xs text-slate-500">{helperText}</p>}
     </div>
   );
@@ -132,3 +137,6 @@ export const Textarea: React.FC<TextareaProps> = ({
     </div>
   );
 };
+
+export const TextArea = Textarea;
+

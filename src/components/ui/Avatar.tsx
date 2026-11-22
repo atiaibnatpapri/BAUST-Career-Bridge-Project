@@ -8,7 +8,7 @@ import { CheckCircle2 } from 'lucide-react';
 
 interface AvatarProps {
   src?: string;
-  name: string;
+  name?: string | null;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   isVerified?: boolean;
   isOnline?: boolean;
@@ -25,12 +25,18 @@ export const Avatar: React.FC<AvatarProps> = ({
 }) => {
   const [imageError, setImageError] = useState(false);
 
-  const getInitials = (n: string) => {
-    const parts = n.trim().split(' ');
+  const safeName = (name ?? '').trim() || 'User';
+
+  const getInitials = (n?: string | null) => {
+    const cleaned = (n ?? '').trim();
+    if (!cleaned) return 'U';
+    const parts = cleaned.split(/\s+/).filter(Boolean);
     if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      const first = (parts[0] ?? 'U').charAt(0);
+      const last = (parts[parts.length - 1] ?? '').charAt(0);
+      return (first + last).toUpperCase() || 'U';
     }
-    return n.slice(0, 2).toUpperCase();
+    return cleaned.substring(0, 2).toUpperCase() || 'U';
   };
 
   const sizeClasses = {
@@ -52,7 +58,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       {src && !imageError ? (
         <img
           src={src}
-          alt={name}
+          alt={safeName}
           onError={() => setImageError(true)}
           className={`${sizeClasses[size]} rounded-full object-cover ring-2 ring-white shadow-xs`}
           referrerPolicy="no-referrer"
@@ -61,7 +67,7 @@ export const Avatar: React.FC<AvatarProps> = ({
         <div
           className={`${sizeClasses[size]} rounded-full bg-[#0F2A4A] text-[#C9A227] flex items-center justify-center font-medium ring-2 ring-white shadow-xs select-none`}
         >
-          {getInitials(name)}
+          {getInitials(safeName)}
         </div>
       )}
 

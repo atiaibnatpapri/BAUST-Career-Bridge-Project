@@ -9,6 +9,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { CVReviewItem } from '../../types/mentorship';
 import { useMentorshipStore } from '../../hooks/useMentorshipStore';
+import { downloadTextDocument } from '../../utils/download';
 import { 
   FileText, 
   Award, 
@@ -35,6 +36,7 @@ export const CVReviewResultModal: React.FC<CVReviewResultModalProps> = ({
 }) => {
   const { sendCVThanks, cvReviews } = useMentorshipStore();
   const [thanking, setThanking] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
 
   if (!review) return null;
 
@@ -110,11 +112,32 @@ export const CVReviewResultModal: React.FC<CVReviewResultModalProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => alert(`Simulated download of ${review.cvFileName} with mentor markup highlights.`)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              type="button"
+              onClick={() => {
+                const rubricLines = (review.categoryScores || [])
+                  .map((cat) => `- ${cat.name}: ${cat.score}/${cat.maxScore} (${cat.feedback || 'Evaluated'})`)
+                  .join('\n');
+                const reportText =
+                  `BAUST Career Bridge — Annotated CV Evaluation Report\n` +
+                  `====================================================\n` +
+                  `Document: ${review.cvFileName} (${review.version.toUpperCase()})\n` +
+                  `Student: ${review.studentName} (${review.studentDept} · ${review.studentBatch})\n` +
+                  `Target Role: ${review.targetRole} (${review.targetSector})\n` +
+                  `Reviewer: ${review.mentorName} (${review.mentorCompany})\n` +
+                  `Overall Score: ${review.overallScore ?? 84}/100\n\n` +
+                  `Mentor Summary:\n${review.mentorSummary || 'Reviewed with feedback.'}\n\n` +
+                  (rubricLines ? `Rubric Breakdown:\n${rubricLines}\n\n` : '') +
+                  `Strengths:\n${(review.strengths || []).map((s) => `* ${s}`).join('\n')}\n\n` +
+                  `Priority Revisions:\n${(review.areasToImprove || []).map((a) => `* ${a}`).join('\n')}\n`;
+                const baseName = review.cvFileName.replace(/\.[^.]+$/, '');
+                downloadTextDocument(`${baseName}_Evaluation_Report.txt`, reportText);
+                setDownloaded(true);
+                setTimeout(() => setDownloaded(false), 2500);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-slate-500" />
-              Download Annotated PDF
+              {downloaded ? 'Report Downloaded' : 'Download Annotated Report'}
             </button>
 
             <Button

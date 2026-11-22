@@ -78,31 +78,73 @@ export const RequestStepperModal: React.FC<RequestStepperModalProps> = ({
   });
 
   // Uploaded docs
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedDocItem[]>([
-    {
-      id: 'doc-id-1',
-      name: 'BAUST_Student_ID_Scanned.pdf',
-      size: '1.2 MB',
-      type: 'application/pdf',
-      url: 'https://example.com/docs/id.pdf',
-      uploadedAt: 'Just now',
-      category: 'ID Card'
-    }
-  ]);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedDocItem[]>([]);
   const [docCategory, setDocCategory] = useState<UploadedDocItem['category']>('Supporting Doc');
 
   // Delivery State
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethodType>('Campus Pickup');
-  const [pickupDate, setPickupDate] = useState('2026-11-20');
+  const [pickupDate, setPickupDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 3);
+    return d.toISOString().split('T')[0];
+  });
   const [pickupSlot, setPickupSlot] = useState('11:00 AM - 01:00 PM (Exam Controller Counter)');
-  const [courierAddress, setCourierAddress] = useState('House 42, Road 11, Banani, Dhaka-1213');
-  const [deliveryEmail, setDeliveryEmail] = useState(currentUser.email || 'farhan.kabir@brainstation-23.com');
-  const [institutionAddress, setInstitutionAddress] = useState('Admissions Office, TU Munich, Arcisstraße 21, 80333 München, Germany');
+  const [courierAddress, setCourierAddress] = useState('');
+  const [deliveryEmail, setDeliveryEmail] = useState(currentUser?.email || '');
+  const [institutionAddress, setInstitutionAddress] = useState('');
 
   // Payment State
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('bKash');
-  const [transactionId, setTransactionId] = useState('BK9X77812M');
+  const [transactionId, setTransactionId] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(true);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setCurrentStep(1);
+      setCreatedTrackingId(null);
+      if (preSelectedService?.id) {
+        setSelectedServiceIds([preSelectedService.id]);
+      }
+      if (currentUser?.email) {
+        setDeliveryEmail(currentUser.email);
+      }
+    }
+  }, [isOpen, preSelectedService?.id, currentUser?.email]);
+
+  // Fee Calculations (MUST stay before any early return)
+  const calculation = useMemo(() => {
+    let subtotal = 0;
+    let urgencyFee = 0;
+    let courierFee = 0;
+
+    selectedServiceIds.forEach((sId) => {
+      const srv = services.find((s) => s.id === sId);
+      const opt = serviceOptions[sId] || { copies: 1, urgency: 'Normal' };
+      if (srv) {
+        const baseCost = srv.fee;
+        const extraCopiesCost = Math.max(0, opt.copies - 1) * srv.perCopyFee;
+        subtotal += baseCost + extraCopiesCost;
+
+        if (opt.urgency === 'Urgent') {
+          urgencyFee += srv.urgentFeeExtra;
+        } else if (opt.urgency === 'Express') {
+          urgencyFee += srv.expressFeeExtra;
+        }
+      }
+    });
+
+    if (deliveryMethod === 'Courier (Home Delivery)') {
+      courierFee = courierAddress.toLowerCase().includes('dhaka')
+        ? settings.courierFeeInsideDhaka
+        : settings.courierFeeOutsideDhaka;
+    } else if (deliveryMethod === 'Direct to Institution') {
+      courierFee = 0;
+    }
+
+    const totalAmount = subtotal + urgencyFee + courierFee;
+
+    return { subtotal, urgencyFee, courierFee, totalAmount };
+  }, [selectedServiceIds, serviceOptions, services, deliveryMethod, courierAddress, settings]);
 
   if (!isOpen) return null;
 
@@ -144,41 +186,6 @@ export const RequestStepperModal: React.FC<RequestStepperModalProps> = ({
     }));
   };
 
-  // Fee Calculations
-  const calculation = useMemo(() => {
-    let subtotal = 0;
-    let urgencyFee = 0;
-    let courierFee = 0;
-
-    selectedServiceIds.forEach((sId) => {
-      const srv = services.find((s) => s.id === sId);
-      const opt = serviceOptions[sId] || { copies: 1, urgency: 'Normal' };
-      if (srv) {
-        const baseCost = srv.fee;
-        const extraCopiesCost = Math.max(0, opt.copies - 1) * srv.perCopyFee;
-        subtotal += baseCost + extraCopiesCost;
-
-        if (opt.urgency === 'Urgent') {
-          urgencyFee += srv.urgentFeeExtra;
-        } else if (opt.urgency === 'Express') {
-          urgencyFee += srv.expressFeeExtra;
-        }
-      }
-    });
-
-    if (deliveryMethod === 'Courier (Home Delivery)') {
-      courierFee = courierAddress.toLowerCase().includes('dhaka')
-        ? settings.courierFeeInsideDhaka
-        : settings.courierFeeOutsideDhaka;
-    } else if (deliveryMethod === 'Direct to Institution') {
-      courierFee = 0; // electronic delivery included
-    }
-
-    const totalAmount = subtotal + urgencyFee + courierFee;
-
-    return { subtotal, urgencyFee, courierFee, totalAmount };
-  }, [selectedServiceIds, serviceOptions, services, deliveryMethod, courierAddress, settings]);
-
   // Mock File Upload
   const handleSimulateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -188,7 +195,7 @@ export const RequestStepperModal: React.FC<RequestStepperModalProps> = ({
         name: file.name,
         size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
         type: file.type || 'application/pdf',
-        url: 'https://example.com/mock-upload.pdf',
+        url: `#upload-${Date.now()}`,
         uploadedAt: 'Just now',
         category: docCategory
       };
@@ -224,16 +231,16 @@ export const RequestStepperModal: React.FC<RequestStepperModalProps> = ({
     });
 
     const trackingId = submitRequest({
-      alumniId: currentUser.id,
-      alumniName: currentUser.name,
-      alumniEmail: currentUser.email,
-      alumniPhone: (currentUser as any).phone || '+880 1712-345678',
-      alumniAvatar: currentUser.avatar,
-      baustId: (currentUser as any).studentId || (currentUser as any).baustId || '1602012',
-      department: (currentUser as any).department || 'CSE',
-      batch: (currentUser as any).batch || '4th Batch',
-      passingYear: (currentUser as any).passingYear || 2020,
-      cgpa: (currentUser as any).cgpa || 3.88,
+      alumniId: currentUser?.id || '',
+      alumniName: currentUser?.name || 'BAUST Member',
+      alumniEmail: currentUser?.email || '',
+      alumniPhone: (currentUser as any)?.phone || '',
+      alumniAvatar: currentUser?.avatar || '',
+      baustId: (currentUser as any)?.studentId || (currentUser as any)?.baustId || '',
+      department: (currentUser as any)?.department || 'CSE',
+      batch: (currentUser as any)?.batch || '',
+      passingYear: Number((currentUser as any)?.passingYear) || 0,
+      cgpa: Number((currentUser as any)?.cgpa) || 0,
       services: formattedServices,
       uploadedDocuments: uploadedFiles,
       delivery: {
@@ -350,12 +357,16 @@ export const RequestStepperModal: React.FC<RequestStepperModalProps> = ({
               <div className="max-w-md mx-auto bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left text-xs space-y-2">
                 <div className="flex justify-between text-slate-600">
                   <span>Applicant:</span>
-                  <span className="font-bold text-slate-900">{currentUser.name}</span>
+                  <span className="font-bold text-slate-900">{currentUser?.name || 'BAUST Member'}</span>
                 </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>BAUST Student ID:</span>
-                  <span className="font-mono font-bold text-slate-900">{(currentUser as any).studentId || '1602012'}</span>
-                </div>
+                {((currentUser as any)?.studentId || (currentUser as any)?.baustId) && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>{(currentUser as any)?.role === 'student' ? 'Student ID:' : 'BAUST ID:'}</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      {(currentUser as any)?.studentId || (currentUser as any)?.baustId}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-slate-600">
                   <span>Services:</span>
                   <span className="font-medium text-slate-800 text-right">{selectedServiceIds.length} item(s)</span>
@@ -457,20 +468,32 @@ export const RequestStepperModal: React.FC<RequestStepperModalProps> = ({
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 text-xs grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold uppercase">Applicant Name</span>
-                  <div className="font-bold text-slate-900">{currentUser.name}</div>
+                  <div className="font-bold text-slate-900">{currentUser?.name || 'BAUST Member'}</div>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase">BAUST Student ID</span>
-                  <div className="font-mono font-bold text-navy">{(currentUser as any).studentId || '1602012'}</div>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase">Dept & Batch</span>
-                  <div className="font-medium text-slate-800">{(currentUser as any).department || 'CSE'} • {(currentUser as any).batch || '4th Batch'}</div>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase">Graduation CGPA</span>
-                  <div className="font-bold text-amber-800">{(currentUser as any).cgpa?.toFixed(2) || '3.88'} / 4.00</div>
-                </div>
+                {((currentUser as any)?.studentId || (currentUser as any)?.baustId) && (
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">
+                      {(currentUser as any)?.role === 'student' ? 'Student ID' : 'BAUST ID'}
+                    </span>
+                    <div className="font-mono font-bold text-navy">
+                      {(currentUser as any)?.studentId || (currentUser as any)?.baustId}
+                    </div>
+                  </div>
+                )}
+                {((currentUser as any)?.department || (currentUser as any)?.batch) && (
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Department</span>
+                    <div className="font-medium text-slate-800">
+                      {[(currentUser as any)?.department, (currentUser as any)?.batch].filter(Boolean).join(' • ')}
+                    </div>
+                  </div>
+                )}
+                {typeof (currentUser as any)?.cgpa === 'number' && (currentUser as any).cgpa > 0 && (
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">CGPA</span>
+                    <div className="font-bold text-amber-800">{(currentUser as any).cgpa.toFixed(2)} / 4.00</div>
+                  </div>
+                )}
               </div>
 
               {/* Service Details Form */}

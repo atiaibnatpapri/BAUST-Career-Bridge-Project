@@ -3,16 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { 
-  DirectoryAlumniProfile, 
-  AlumniConnectionRequest, 
-  SavedSearchSet, 
-  ProfileReportSubmission, 
-  SkillItem 
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import {
+  DirectoryAlumniProfile,
+  AlumniConnectionRequest,
+  SavedSearchSet,
+  ProfileReportSubmission,
 } from '../types/directory';
-import { initialAlumniProfiles } from '../data/alumniProfiles';
 import { Department } from '../types';
+import { useAuth, UserProfileData } from '../context/AuthContext';
+import { useApp } from '../context/AppContext';
+import { toList } from '../utils/utils';
+import {
+  isVerifiedVisibleAlumni,
+  normalizeDepartment,
+  parseBatchNumber,
+  sanitizeUserForViewer,
+} from '../constants/baustDataModel';
+import { submitModerationReport, subscribeReports } from '../services/careerBridgeService';
 
 interface DirectoryStoreContextType {
   alumniProfiles: DirectoryAlumniProfile[];
@@ -25,8 +33,8 @@ interface DirectoryStoreContextType {
   isAlumniSaved: (id: string) => boolean;
   updateAlumniProfile: (id: string, updates: Partial<DirectoryAlumniProfile>) => void;
   endorseSkill: (
-    alumniId: string, 
-    skillName: string, 
+    alumniId: string,
+    skillName: string,
     studentInfo: { studentId: string; studentName: string; studentDept: Department; comment?: string }
   ) => boolean;
   sendConnectionRequest: (
@@ -39,162 +47,227 @@ interface DirectoryStoreContextType {
   resetProfilesToDefault: () => void;
 }
 
-const STORAGE_KEYS = {
-  PROFILES: 'baust_directory_profiles_v2',
-  SAVED_IDS: 'baust_saved_alumni_ids',
-  CONNECTIONS: 'baust_alumni_connections',
-  SAVED_SEARCHES: 'baust_saved_searches',
-  REPORTS: 'baust_profile_reports'
-};
+function mapUserToDirectoryProfile(
+  raw: UserProfileData,
+  viewerUid?: string,
+  viewerRole?: any
+): DirectoryAlumniProfile {
+  const safe = sanitizeUserForViewer(raw, viewerUid, viewerRole) || raw;
+  const uid = safe.id || safe.uid || '';
+  const batchNum = parseBatchNumber(safe.batch) || 1;
+  const passingYear = typeof safe.passingYear === 'number' ? safe.passingYear : 2022;
+  const skillsArr = toList(safe.skills);
+  const fullLoc = safe.location || 'Bangladesh';
+  const locParts = fullLoc.split(',').map((s: string) => s.trim()).filter(Boolean);
 
-const initialConnections: AlumniConnectionRequest[] = [
-  {
-    id: 'conn-1',
-    studentId: 'stu-current',
-    studentName: 'Tanvir Hossain Fahim',
-    studentEmail: 'tanvir.fahim@baust.edu.bd',
-    studentDept: 'CSE',
-    studentBatch: '10th Batch',
-    studentAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-    alumniId: 'alm-1',
-    purpose: 'Career Advice',
-    note: 'Assalamu Alaikum brother Farhan, I am preparing for software engineering roles in MERN stack and would love to connect for occasional advice.',
-    status: 'Pending',
-    sentAt: '2025-02-14T10:30:00Z'
-  },
-  {
-    id: 'conn-2',
-    studentId: 'stu-current',
-    studentName: 'Tanvir Hossain Fahim',
-    studentEmail: 'tanvir.fahim@baust.edu.bd',
-    studentDept: 'CSE',
-    studentBatch: '10th Batch',
-    studentAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-    alumniId: 'alm-2',
-    purpose: 'Higher Study Guidance',
-    note: 'Interested in your Bengali NLP research publications. Seeking guidance on undergraduate paper publishing.',
-    status: 'Accepted',
-    sentAt: '2025-02-01T14:15:00Z',
-    respondedAt: '2025-02-02T09:00:00Z'
-  }
-];
-
-const initialSavedSearches: SavedSearchSet[] = [
-  {
-    id: 'search-1',
-    title: 'CSE Top Mentors in Dhaka',
-    searchTerm: '',
-    department: 'CSE',
-    sector: 'Private',
-    batchMin: 1,
-    batchMax: 10,
-    cgpaMin: 3.5,
-    mentoringOnly: true,
-    referralsOnly: false,
-    hiringOnly: false,
-    createdAt: '2025-02-10'
-  },
-  {
-    id: 'search-2',
-    title: 'Govt & BCS Officers (EEE/CSE/ME)',
-    searchTerm: 'BCS',
-    department: 'All',
-    sector: 'Government',
-    batchMin: 1,
-    batchMax: 10,
-    cgpaMin: 0,
-    mentoringOnly: false,
-    referralsOnly: false,
-    hiringOnly: false,
-    createdAt: '2025-02-12'
-  }
-];
+  return {
+    id: uid,
+    name: safe.name || 'BAUST Alumni',
+    email: safe.email || '',
+    role: 'alumni',
+    avatar: safe.avatar || '',
+    department: normalizeDepartment(safe.department),
+    batch: safe.batch || `${batchNum}th Batch`,
+    batchNumber: batchNum,
+    admissionYear: passingYear - 4,
+    passingYear,
+    studentIdMasked: safe.baustId
+      ? `${String(safe.baustId).slice(0, 6)}***`
+      : 'BAUST-VERIFIED',
+    phone: safe.phone || '',
+    bio: safe.bio || `${safe.designation || 'BAUST Graduate'} at ${safe.company || 'Partner Organization'}.`,
+    headline:
+      safe.headline ||
+      `${safe.designation || 'BAUST Alumni'} · ${safe.company || 'BAUST Network'}`,
+    isVerified: Boolean(safe.isVerified),
+    verifiedAlumniBadge: Boolean(safe.verifiedAlumniBadge),
+    isFeatured: Boolean(safe.isFeatured),
+    _privacyRestricted: Boolean((safe as any)._privacyRestricted),
+    _hiddenEmail: Boolean((safe as any)._hiddenEmail),
+    _hiddenPhone: Boolean((safe as any)._hiddenPhone),
+    verificationBadgeLevel: safe.verifiedAlumniBadge ? 'Official BAUST' : undefined,
+    designation: safe.designation || 'Alumni Member',
+    company: safe.company || 'Partner Organization',
+    sector: (safe.sector as any) || 'Private',
+    location: fullLoc,
+    city: locParts[0] || 'Dhaka',
+    country: locParts[1] || 'Bangladesh',
+    cgpa: typeof safe.cgpa === 'number' ? safe.cgpa : 0,
+    thesisTitle: '',
+    thesisSupervisor: '',
+    honors: toList(safe.achievements),
+    clubs: [],
+    scholarships: [],
+    education: Array.isArray(safe.education)
+      ? safe.education.map((e: any, idx: number) => ({
+          id: e?.id || `edu-${idx}`,
+          degree: e?.degree || 'B.Sc.',
+          institution: e?.institution || 'BAUST, Saidpur',
+          department: normalizeDepartment(safe.department),
+          period: e?.year || String(passingYear),
+        }))
+      : [],
+    publications: [],
+    skillsWithLevels: skillsArr.map((name, idx) => ({
+      id: `sk-${uid}-${idx}`,
+      name,
+      level: 'Advanced',
+      endorsements: [],
+    })),
+    skills: skillsArr,
+    topExpertise: skillsArr.slice(0, 3),
+    experienceTimeline: Array.isArray(safe.experienceTimeline)
+      ? safe.experienceTimeline.map((exp: any, idx: number) => ({
+          id: exp?.id || `exp-${idx}`,
+          role: exp?.role || safe.designation || 'Engineer',
+          company: exp?.company || safe.company || 'Organization',
+          location: fullLoc,
+          period: exp?.duration || `${passingYear} - Present`,
+          isCurrent: idx === 0,
+          description: exp?.description || '',
+        }))
+      : [],
+    certifications: [],
+    interestedFields: toList(safe.mentorshipTopics),
+    mentoringAvailable: Boolean(safe.mentoringAvailable),
+    openToReferrals: Boolean(safe.mentoringAvailable),
+    openToHiring: false,
+    mentorshipTopics: toList(safe.mentorshipTopics) as any,
+    availableSlots: toList(safe.availableSlots),
+    totalMentees: typeof safe.totalMentees === 'number' ? safe.totalMentees : 0,
+    studentsConsulted: typeof safe.totalMentees === 'number' ? safe.totalMentees : 0,
+    rating: typeof safe.rating === 'number' ? safe.rating : 0,
+    reviewCount: 0,
+    linkedin: safe.linkedin || '',
+    github: safe.github || '',
+    privacy: {
+      cgpa:
+        safe.privacy?.cgpa ||
+        (safe.profileVisibility === 'private' ? 'hidden' : 'public'),
+      email:
+        safe.privacy?.email ||
+        (safe.hideEmail ? 'hidden' : 'public'),
+      phone:
+        safe.privacy?.phone ||
+        (safe.hidePhone ? 'hidden' : 'public'),
+      location: safe.privacy?.location || 'public',
+    },
+    stats: {
+      profileViewsThisMonth: 0,
+      searchAppearances: 0,
+      bookmarksCount: 0,
+      endorsementsReceived: skillsArr.length,
+      monthlyViewHistory: [],
+    },
+    lastUpdated: new Date().toISOString().split('T')[0],
+  };
+}
 
 const DirectoryStoreContext = createContext<DirectoryStoreContextType | undefined>(undefined);
 
 export const DirectoryStoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // 1. Profiles State
-  const [alumniProfiles, setAlumniProfiles] = useState<DirectoryAlumniProfile[]>(() => {
+  const { firebaseUser, userProfile, loading: authLoading, updateUserProfile, registerSessionCleanup } = useAuth();
+  const { allUsers, addToast, mentorshipRequests, requestMentorship, respondMentorship } = useApp();
+
+  const [savedAlumniIds, setSavedAlumniIds] = useState<string[]>([]);
+  const [savedSearches, setSavedSearches] = useState<SavedSearchSet[]>([]);
+  const [reports, setReports] = useState<ProfileReportSubmission[]>([]);
+
+  // Sync savedAlumniIds & per-user savedSearches
+  useEffect(() => {
+    setSavedAlumniIds(toList(userProfile?.savedAlumniIds));
+  }, [userProfile?.savedAlumniIds]);
+
+  useEffect(() => {
+    if (!firebaseUser?.uid) {
+      setSavedSearches([]);
+      return;
+    }
     try {
-      const stored = localStorage.getItem(STORAGE_KEYS.PROFILES);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length >= 30) {
-          return parsed;
+      const raw = localStorage.getItem(`baust_saved_searches_${firebaseUser.uid}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setSavedSearches(parsed);
+          return;
         }
       }
-    } catch (e) {
-      console.error('Failed to load alumni profiles from storage', e);
-    }
-    return initialAlumniProfiles;
-  });
-
-  // 2. Saved Alumni IDs
-  const [savedAlumniIds, setSavedAlumniIds] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.SAVED_IDS);
-      return stored ? JSON.parse(stored) : ['alm-1', 'alm-4', 'alm-3'];
     } catch {
-      return ['alm-1', 'alm-4', 'alm-3'];
+      // ignore storage errors
     }
-  });
+    setSavedSearches([]);
+  }, [firebaseUser?.uid]);
 
-  // 3. Connections
-  const [connections, setConnections] = useState<AlumniConnectionRequest[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.CONNECTIONS);
-      return stored ? JSON.parse(stored) : initialConnections;
-    } catch {
-      return initialConnections;
+  // Subscribe to Firestore reports collection (for moderation visibility)
+  useEffect(() => {
+    if (
+      authLoading ||
+      !firebaseUser ||
+      userProfile?.verificationStatus !== 'approved' ||
+      userProfile?.suspended
+    ) {
+      setReports([]);
+      return;
     }
-  });
 
-  // 4. Saved Search Sets
-  const [savedSearches, setSavedSearches] = useState<SavedSearchSet[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.SAVED_SEARCHES);
-      return stored ? JSON.parse(stored) : initialSavedSearches;
-    } catch {
-      return initialSavedSearches;
-    }
-  });
+    const opts =
+      userProfile.role === 'admin' || userProfile.role === 'superAdmin'
+        ? {}
+        : { reporterId: firebaseUser.uid };
 
-  // 5. Reports
-  const [reports, setReports] = useState<ProfileReportSubmission[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.REPORTS);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+    return subscribeReports(
+      opts,
+      (items) => {
+        setReports(
+          items.map((r) => ({
+            id: r.id,
+            reportedAlumniId: r.targetId,
+            reportedAlumniName: r.targetName,
+            reporterId: r.reporterId,
+            reporterName: r.reporterName,
+            reason: (r.reason as any) || 'Other',
+            details: r.details,
+            submittedAt: new Date().toISOString(),
+            status: r.status === 'Action Taken' ? 'Resolved' : r.status === 'Reviewed' ? 'Investigated' : 'Pending',
+          }))
+        );
+      },
+      (err) => console.warn('Reports listener warning:', err.message)
+    );
+  }, [authLoading, firebaseUser, userProfile?.role, userProfile?.verificationStatus, userProfile?.suspended]);
 
-  // Sync to local storage
+  const connections = useMemo<AlumniConnectionRequest[]>(() => {
+    return mentorshipRequests.map((m) => ({
+      id: m.id,
+      studentId: m.studentId,
+      studentName: m.studentName,
+      studentEmail: '',
+      studentDept: m.studentDept,
+      studentBatch: m.studentBatch,
+      studentAvatar: m.studentAvatar,
+      alumniId: m.alumniId,
+      purpose: (m.topic as any) || 'Career Advice',
+      note: m.note,
+      status: m.status === 'Accepted' ? 'Accepted' : m.status === 'Declined' ? 'Declined' : 'Pending',
+      sentAt: m.createdAt,
+    }));
+  }, [mentorshipRequests]);
+
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(alumniProfiles));
-    } catch (e) {
-      console.warn('Failed to save profiles to localStorage', e);
-    }
-  }, [alumniProfiles]);
+    return registerSessionCleanup(() => {
+      setSavedAlumniIds([]);
+      setSavedSearches([]);
+      setReports([]);
+    });
+  }, [registerSessionCleanup]);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SAVED_IDS, JSON.stringify(savedAlumniIds));
-  }, [savedAlumniIds]);
+  // Live Firestore verified & non-suspended alumni only (#42, #50, #63)
+  const alumniProfiles = useMemo<DirectoryAlumniProfile[]>(() => {
+    return allUsers
+      .filter((u) => isVerifiedVisibleAlumni(u))
+      .map((u) => mapUserToDirectoryProfile(u, firebaseUser?.uid, userProfile?.role));
+  }, [allUsers, firebaseUser?.uid, userProfile?.role]);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CONNECTIONS, JSON.stringify(connections));
-  }, [connections]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SAVED_SEARCHES, JSON.stringify(savedSearches));
-  }, [savedSearches]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
-  }, [reports]);
-
-  // Methods
   const getProfileById = (id: string): DirectoryAlumniProfile | undefined => {
     return alumniProfiles.find((p) => p.id === id);
   };
@@ -203,25 +276,9 @@ export const DirectoryStoreProvider: React.FC<{ children: ReactNode }> = ({ chil
     setSavedAlumniIds((prev) => {
       const exists = prev.includes(id);
       const updated = exists ? prev.filter((i) => i !== id) : [...prev, id];
-      
-      // Update bookmark count on profile
-      setAlumniProfiles((profiles) =>
-        profiles.map((p) => {
-          if (p.id === id) {
-            const currentCount = p.stats?.bookmarksCount || 0;
-            return {
-              ...p,
-              stats: {
-                ...p.stats,
-                bookmarksCount: exists ? Math.max(0, currentCount - 1) : currentCount + 1
-              }
-            };
-          }
-          return p;
-        })
-      );
-
-      // TODO: replace with API call: POST /api/directory/save
+      if (firebaseUser) {
+        void updateUserProfile({ savedAlumniIds: updated });
+      }
       return updated;
     });
   };
@@ -231,157 +288,124 @@ export const DirectoryStoreProvider: React.FC<{ children: ReactNode }> = ({ chil
   };
 
   const updateAlumniProfile = (id: string, updates: Partial<DirectoryAlumniProfile>) => {
-    setAlumniProfiles((prev) =>
-      prev.map((profile) => {
-        if (profile.id !== id) return profile;
-
-        // Detect sensitive changes that trigger re-verification notice
-        const sensitiveChange = 
-          (updates.department && updates.department !== profile.department) ||
-          (updates.batchNumber && updates.batchNumber !== profile.batchNumber) ||
-          (updates.studentIdMasked && updates.studentIdMasked !== profile.studentIdMasked);
-
-        const merged: DirectoryAlumniProfile = {
-          ...profile,
-          ...updates,
-          isReverificationPending: sensitiveChange ? true : profile.isReverificationPending,
-          reverificationNotice: sensitiveChange 
-            ? 'Department, batch or student ID changes require re-verification by BAUST registrar office.' 
-            : profile.reverificationNotice,
-          lastUpdated: new Date().toISOString().split('T')[0]
-        };
-
-        // TODO: replace with API call: PUT /api/directory/profiles/:id
-        return merged;
-      })
-    );
+    if (!firebaseUser || id !== firebaseUser.uid) {
+      return;
+    }
+    void updateUserProfile({
+      bio: updates.bio,
+      headline: updates.headline,
+      designation: updates.designation,
+      company: updates.company,
+      sector: updates.sector as any,
+      location: updates.location,
+      linkedin: updates.linkedin,
+      github: updates.github,
+      skills: updates.skills,
+      mentoringAvailable: updates.mentoringAvailable,
+      mentorshipTopics: updates.mentorshipTopics,
+      availableSlots: updates.availableSlots,
+      hideEmail: updates.privacy?.email === 'hidden',
+      hidePhone: updates.privacy?.phone === 'hidden',
+      profileVisibility: updates.privacy?.cgpa === 'hidden' ? 'private' : 'public',
+    });
   };
 
   const endorseSkill = (
-    alumniId: string, 
-    skillName: string, 
+    alumniId: string,
+    skillName: string,
     studentInfo: { studentId: string; studentName: string; studentDept: Department; comment?: string }
   ): boolean => {
-    let success = false;
-    setAlumniProfiles((prev) =>
-      prev.map((profile) => {
-        if (profile.id !== alumniId) return profile;
-
-        // Find or create skill
-        let skillFound = false;
-        const updatedSkills: SkillItem[] = (profile.skillsWithLevels || []).map((sk) => {
-          if (sk.name.toLowerCase() === skillName.toLowerCase()) {
-            skillFound = true;
-            // Check if student already endorsed
-            const alreadyEndorsed = sk.endorsements?.some((e) => e.studentId === studentInfo.studentId);
-            if (alreadyEndorsed) return sk;
-
-            success = true;
-            return {
-              ...sk,
-              endorsements: [
-                ...(sk.endorsements || []),
-                {
-                  studentId: studentInfo.studentId,
-                  studentName: studentInfo.studentName,
-                  studentDept: studentInfo.studentDept,
-                  date: new Date().toISOString().split('T')[0],
-                  comment: studentInfo.comment
-                }
-              ]
-            };
-          }
-          return sk;
-        });
-
-        if (!skillFound) {
-          // If skill not in withLevels, add it
-          success = true;
-          updatedSkills.push({
-            id: `sk-${Date.now()}`,
-            name: skillName,
-            level: 'Intermediate',
-            endorsements: [
-              {
-                studentId: studentInfo.studentId,
-                studentName: studentInfo.studentName,
-                studentDept: studentInfo.studentDept,
-                date: new Date().toISOString().split('T')[0],
-                comment: studentInfo.comment
-              }
-            ]
-          });
-        }
-
-        const totalEndorsements = updatedSkills.reduce((sum, s) => sum + (s.endorsements?.length || 0), 0);
-
-        // TODO: replace with API call: POST /api/directory/profiles/:id/endorse
-        return {
-          ...profile,
-          skillsWithLevels: updatedSkills,
-          skills: Array.from(new Set([...profile.skills, skillName])),
-          stats: {
-            ...profile.stats,
-            endorsementsReceived: totalEndorsements
-          }
-        };
-      })
+    const targetAlumni = alumniProfiles.find((p) => p.id === alumniId);
+    addToast(
+      'success',
+      'Skill Endorsed',
+      `${studentInfo.studentName || 'Student'} endorsed ${skillName} for ${targetAlumni?.name || 'alumni member'}.`
     );
-
-    return success;
+    return true;
   };
 
   const sendConnectionRequest = (req: Omit<AlumniConnectionRequest, 'id' | 'status' | 'sentAt'>) => {
-    const newReq: AlumniConnectionRequest = {
-      ...req,
-      id: `conn-${Date.now()}`,
-      status: 'Pending',
-      sentAt: new Date().toISOString()
-    };
-    // TODO: replace with API call: POST /api/directory/connections
-    setConnections((prev) => [newReq, ...prev]);
+    const targetAlumni = alumniProfiles.find((p) => p.id === req.alumniId);
+    void requestMentorship({
+      studentId: firebaseUser?.uid || req.studentId,
+      studentName: userProfile?.name || req.studentName,
+      studentDept: normalizeDepartment(userProfile?.department || req.studentDept),
+      studentBatch: userProfile?.batch || req.studentBatch,
+      studentAvatar: userProfile?.avatar || req.studentAvatar,
+      alumniId: req.alumniId,
+      alumniName: targetAlumni?.name || 'BAUST Alumni',
+      alumniCompany: targetAlumni?.company || 'BAUST Network',
+      topic: 'Career Guidance',
+      note: `[Connection: ${req.purpose}] ${req.note}`.trim(),
+      preferredDate: 'Flexible',
+      preferredTime: 'To be scheduled',
+    });
   };
 
   const respondConnectionRequest = (requestId: string, status: 'Accepted' | 'Declined') => {
-    setConnections((prev) =>
-      prev.map((c) =>
-        c.id === requestId
-          ? { ...c, status, respondedAt: new Date().toISOString() }
-          : c
-      )
-    );
-    // TODO: replace with API call: PATCH /api/directory/connections/:id
+    void respondMentorship(requestId, status);
   };
 
   const saveSearchSet = (search: Omit<SavedSearchSet, 'id' | 'createdAt'>) => {
     const newSearch: SavedSearchSet = {
       ...search,
       id: `search-${Date.now()}`,
-      createdAt: new Date().toISOString().split('T')[0]
+      createdAt: new Date().toISOString().split('T')[0],
     };
-    setSavedSearches((prev) => [newSearch, ...prev]);
-    // TODO: replace with API call: POST /api/directory/saved-searches
+    setSavedSearches((prev) => {
+      const updated = [newSearch, ...prev];
+      if (firebaseUser?.uid) {
+        try {
+          localStorage.setItem(`baust_saved_searches_${firebaseUser.uid}`, JSON.stringify(updated));
+        } catch {
+          // ignore storage quota errors
+        }
+      }
+      return updated;
+    });
   };
 
   const deleteSavedSearch = (id: string) => {
-    setSavedSearches((prev) => prev.filter((s) => s.id !== id));
-    // TODO: replace with API call: DELETE /api/directory/saved-searches/:id
+    setSavedSearches((prev) => {
+      const updated = prev.filter((s) => s.id !== id);
+      if (firebaseUser?.uid) {
+        try {
+          localStorage.setItem(`baust_saved_searches_${firebaseUser.uid}`, JSON.stringify(updated));
+        } catch {
+          // ignore storage quota errors
+        }
+      }
+      return updated;
+    });
   };
 
-  const submitProfileReport = (report: Omit<ProfileReportSubmission, 'id' | 'status' | 'submittedAt'>) => {
-    const newReport: ProfileReportSubmission = {
-      ...report,
-      id: `rep-${Date.now()}`,
-      status: 'Pending',
-      submittedAt: new Date().toISOString()
-    };
-    setReports((prev) => [newReport, ...prev]);
-    // TODO: replace with API call: POST /api/directory/reports
+  const submitProfileReport = (
+    report: Omit<ProfileReportSubmission, 'id' | 'status' | 'submittedAt'>
+  ) => {
+    if (!firebaseUser || !userProfile) {
+      addToast('error', 'Sign In Required', 'Please sign in to submit a report.');
+      return;
+    }
+    void submitModerationReport({
+      reporterId: firebaseUser.uid,
+      reporterName: userProfile.name,
+      reporterRole: userProfile.role,
+      targetId: report.reportedAlumniId,
+      targetType: 'user',
+      targetName: report.reportedAlumniName,
+      reason: report.reason,
+      details: report.details,
+    })
+      .then(() => {
+        addToast('success', 'Report Submitted', 'University moderation staff have been notified.');
+      })
+      .catch((err) => {
+        addToast('error', 'Report Failed', err?.message || 'Unable to submit report.');
+      });
   };
 
   const resetProfilesToDefault = () => {
-    localStorage.removeItem(STORAGE_KEYS.PROFILES);
-    setAlumniProfiles(initialAlumniProfiles);
+    setSavedSearches([]);
   };
 
   return (
@@ -402,7 +426,7 @@ export const DirectoryStoreProvider: React.FC<{ children: ReactNode }> = ({ chil
         saveSearchSet,
         deleteSavedSearch,
         submitProfileReport,
-        resetProfilesToDefault
+        resetProfilesToDefault,
       }}
     >
       {children}

@@ -38,15 +38,15 @@ export const UniversityAdminDesk: React.FC = () => {
   const [copies, setCopies] = useState<number>(2);
   const [purpose, setPurpose] = useState<ServiceRequest['purpose']>('Higher Studies Abroad');
   const [deliveryMethod, setDeliveryMethod] = useState<ServiceRequest['deliveryMethod']>('Courier (Home Delivery)');
-  const [deliveryAddress, setDeliveryAddress] = useState('Flat 4B, Concord Tower, Banani, Dhaka-1213');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'bKash' | 'Nagad' | 'Bank Transfer'>('bKash');
-  const [transactionId, setTransactionId] = useState('BK9X77812M');
-  const [phone, setPhone] = useState('+880 1712-345678');
+  const [transactionId, setTransactionId] = useState('');
+  const [phone, setPhone] = useState((currentUser as any)?.phone || '');
 
   // Filter requests for currently active alumni (or all if admin)
-  const userRequests = currentUser.role === 'admin'
+  const userRequests = currentUser.role === 'admin' || currentUser.role === 'superAdmin'
     ? serviceRequests
-    : serviceRequests.filter((r) => r.alumniId === currentUser.id || r.alumniId === 'alm-1');
+    : serviceRequests.filter((r) => r.alumniId === currentUser.id);
 
   // Fee calculation (500 BDT per copy for transcript, 1500 for certificate)
   const feePerCopy = documentType.includes('Certificate') ? 1500 : 500;
@@ -120,7 +120,7 @@ export const UniversityAdminDesk: React.FC = () => {
       header: 'Delivery & Fee',
       cell: (item: ServiceRequest) => (
         <div>
-          <p className="text-xs text-slate-800 font-medium">{item.deliveryMethod.split(' ')[0]}</p>
+          <p className="text-xs text-slate-800 font-medium">{(item?.deliveryMethod ?? 'Standard').split(' ')[0]}</p>
           <p className="text-[11px] text-emerald-700 font-bold tabular-nums">
             {item.amount} BDT ({item.paymentMethod})
           </p>

@@ -28,6 +28,7 @@ import { NoticeCreateModal } from '../../../components/admindesk/NoticeCreateMod
 import { VacancyCreateModal } from '../../../components/admindesk/VacancyCreateModal';
 import { ServiceEditModal } from '../../../components/admindesk/ServiceEditModal';
 import { ApplicationDetailModal } from '../../../components/admindesk/ApplicationDetailModal';
+import { Modal } from '../../../components/ui/Modal';
 import {
   AdminDeskRequest,
   AdminDeskService,
@@ -37,12 +38,23 @@ import {
   AdminDeskSettings
 } from '../../../types/admindesk';
 
-type AdminTabKey = 'overview' | 'requests' | 'catalog' | 'notices' | 'vacancies' | 'settings';
+import { DOC_STAGES } from '../../../constants/baustDataModel';
+
+type AdminTabKey = 'requests' | 'overview' | 'catalog' | 'notices' | 'vacancies' | 'settings';
+type RequestBucket = 'All' | 'New' | 'In Progress' | 'Delivered' | 'Rejected';
+
+function getRequestBucket(r: AdminDeskRequest): Exclude<RequestBucket, 'All'> {
+  if (r.status === 'Rejected') return 'Rejected';
+  if (r.status === 'Delivered' || r.stages?.[5]?.status === 'done') return 'Delivered';
+  const stageIdx = typeof r.currentStageIndex === 'number' ? r.currentStageIndex : 1;
+  if (stageIdx <= 1 && r.status === 'Submitted') return 'New';
+  return 'In Progress';
+}
 
 export const AdminAdminDeskPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (searchParams.get('tab') as AdminTabKey) || 'overview';
+  const activeTab = (searchParams.get('tab') as AdminTabKey) || 'requests';
 
   const {
     services,
@@ -76,12 +88,16 @@ export const AdminAdminDeskPage: React.FC = () => {
   const [editingService, setEditingService] = useState<AdminDeskService | null>(null);
 
   const [selectedApplication, setSelectedApplication] = useState<VacancyApplication | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    type: 'service' | 'notice' | 'vacancy';
+    id: string;
+    label: string;
+  } | null>(null);
 
   // Filters for Requests
   const [requestSearch, setRequestSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState<string>('All');
   const [serviceFilter, setServiceFilter] = useState('All');
-  const [urgencyFilter, setUrgencyFilter] = useState('All');
 
   // Vacancy Sub-tab
   const [vacancySubTab, setVacancySubTab] = useState<'openings' | 'applications'>('openings');
@@ -94,24 +110,55 @@ export const AdminAdminDeskPage: React.FC = () => {
     setSearchParams({ tab });
   };
 
+  const bucketCounts = useMemo(() => {
+    const counts: Record<RequestBucket, number> = {
+      All: requests.length,
+      New: 0,
+      'In Progress': 0,
+      Delivered: 0,
+      Rejected: 0,
+    };
+    requests.forEach((r) => {
+      const b = getRequestBucket(r);
+      counts[b] += 1;
+    });
+    return counts;
+  }, [requests]);
+
+  const docTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    requests.forEach((r) => {
+      if (r.services[0]?.serviceName) set.add(r.services[0].serviceName);
+    });
+    services.forEach((s) => {
+      if (s.name) set.add(s.name);
+    });
+    return Array.from(set);
+  }, [requests, services]);
+
   // Filtered Requests Table
   const filteredRequests = useMemo(() => {
-    return requests.filter(r => {
-      if (statusFilter !== 'All' && r.status !== statusFilter) return false;
+    return requests.filter((r) => {
+      if (statusFilter !== 'All') {
+        if (['New', 'In Progress', 'Delivered', 'Rejected'].includes(statusFilter)) {
+          if (getRequestBucket(r) !== statusFilter) return false;
+        } else if (r.status !== statusFilter) {
+          return false;
+        }
+      }
       if (serviceFilter !== 'All' && r.services[0]?.serviceName !== serviceFilter) return false;
-      if (urgencyFilter !== 'All' && r.urgency !== urgencyFilter) return false;
       if (requestSearch.trim()) {
         const query = requestSearch.toLowerCase();
         return (
           r.id.toLowerCase().includes(query) ||
-          r.alumniName.toLowerCase().includes(query) ||
-          r.baustId.toLowerCase().includes(query) ||
-          r.services.some(s => s.serviceName.toLowerCase().includes(query))
+          (r.alumniName || '').toLowerCase().includes(query) ||
+          (r.baustId || '').toLowerCase().includes(query) ||
+          r.services.some((s) => (s.serviceName || '').toLowerCase().includes(query))
         );
       }
       return true;
     });
-  }, [requests, statusFilter, serviceFilter, urgencyFilter, requestSearch]);
+  }, [requests, statusFilter, serviceFilter, requestSearch]);
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -301,6 +348,34 @@ export const AdminAdminDeskPage: React.FC = () => {
         {/* TAB 2: SERVICE REQUESTS TABLE */}
         {activeTab === 'requests' && (
           <div className="mt-6 space-y-4">
+            {/* Queue Bucket Tabs with Live Counts */}
+            <div className="flex flex-wrap items-center gap-2">
+              {(['All', 'New', 'In Progress', 'Delivered', 'Rejected'] as RequestBucket[]).map((bucket) => {
+                const isSelected = statusFilter === bucket;
+                return (
+                  <button
+                    key={bucket}
+                    type="button"
+                    onClick={() => setStatusFilter(bucket)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all inline-flex items-center gap-2 cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#0F2A4A] text-white border-[#0F2A4A] shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{bucket}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                        isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {bucketCounts[bucket]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
               <div className="relative grow max-w-md">
                 <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -308,45 +383,31 @@ export const AdminAdminDeskPage: React.FC = () => {
                   type="text"
                   value={requestSearch}
                   onChange={e => setRequestSearch(e.target.value)}
-                  placeholder="Search by Tracking ID, Student Name, Student ID..."
+                  placeholder="Search by Tracking ID, Requester Name, ID, or Type..."
                   className="w-full pl-9 pr-4 py-2 text-xs md:text-sm rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#0F2A4A] focus:border-[#0F2A4A] outline-hidden"
                 />
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <select
-                  value={statusFilter}
-                  onChange={e => setStatusFilter(e.target.value)}
+                  value={serviceFilter}
+                  onChange={e => setServiceFilter(e.target.value)}
                   className="px-3 py-2 text-xs rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-[#0F2A4A] outline-hidden"
                 >
-                  <option value="All">All Statuses</option>
-                  <option value="Submitted">Submitted</option>
-                  <option value="Payment Verified">Payment Verified</option>
-                  <option value="Under Review">Under Review</option>
-                  <option value="Action Required">Action Required</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Processing">Processing</option>
-                  <option value="Ready">Ready</option>
-                  <option value="Delivered">Delivered</option>
-                  <option value="Rejected">Rejected</option>
+                  <option value="All">All Document Types</option>
+                  {docTypeOptions.map((dt) => (
+                    <option key={dt} value={dt}>
+                      {dt}
+                    </option>
+                  ))}
                 </select>
 
-                <select
-                  value={urgencyFilter}
-                  onChange={e => setUrgencyFilter(e.target.value)}
-                  className="px-3 py-2 text-xs rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-[#0F2A4A] outline-hidden"
-                >
-                  <option value="All">All Urgency</option>
-                  <option value="Normal">Normal SLA</option>
-                  <option value="Urgent">Urgent SLA</option>
-                  <option value="Express">Express SLA</option>
-                </select>
-
-                {(statusFilter !== 'All' || urgencyFilter !== 'All' || requestSearch) && (
+                {(statusFilter !== 'All' || serviceFilter !== 'All' || requestSearch) && (
                   <button
+                    type="button"
                     onClick={() => {
                       setStatusFilter('All');
-                      setUrgencyFilter('All');
+                      setServiceFilter('All');
                       setRequestSearch('');
                     }}
                     className="px-3 py-2 text-xs text-gray-500 hover:text-gray-800 underline"
@@ -362,101 +423,87 @@ export const AdminAdminDeskPage: React.FC = () => {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase tracking-wider font-semibold">
                     <tr>
-                      <th className="py-3.5 px-4">Tracking ID</th>
-                      <th className="py-3.5 px-4">Applicant</th>
-                      <th className="py-3.5 px-4">Service</th>
-                      <th className="py-3.5 px-4">Requested</th>
-                      <th className="py-3.5 px-4">Payment</th>
-                      <th className="py-3.5 px-4">Status</th>
-                      <th className="py-3.5 px-4">Assigned</th>
+                      <th className="py-3.5 px-4">Requester</th>
+                      <th className="py-3.5 px-4">Document Type</th>
+                      <th className="py-3.5 px-4">Current Stage</th>
+                      <th className="py-3.5 px-4">Date</th>
                       <th className="py-3.5 px-4 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {filteredRequests.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-12 text-center text-gray-500 text-sm">
-                          No service requests match the specified criteria.
+                        <td colSpan={5} className="py-12 text-center text-gray-500 text-sm">
+                          No document requests match the selected filter.
                         </td>
                       </tr>
                     ) : (
-                      filteredRequests.map(r => (
-                        <tr
-                          key={r.id}
-                          onClick={() => navigate(`/admin/admin-desk/requests/${r.id}`)}
-                          className="hover:bg-gray-50 cursor-pointer transition-colors"
-                        >
-                          <td className="py-3.5 px-4">
-                            <span className="font-mono font-bold text-[#0F2A4A] bg-blue-50 px-2 py-0.5 rounded">
-                              {r.id}
-                            </span>
-                            {(r.urgency === 'Urgent' || r.urgency === 'Express') && (
-                              <span className="block mt-1 text-[10px] font-extrabold uppercase text-red-600">
-                                {r.urgency}
+                      filteredRequests.map((r) => {
+                        const stageIdx = typeof r.currentStageIndex === 'number' ? r.currentStageIndex : 1;
+                        const currentStageDef = DOC_STAGES[stageIdx] || DOC_STAGES[1];
+                        const isRejected = r.status === 'Rejected';
+                        const isCancelled = r.status === 'Cancelled';
+                        const isDelivered = r.status === 'Delivered' || r.stages?.[5]?.status === 'done';
+
+                        return (
+                          <tr
+                            key={r.id}
+                            onClick={() => navigate(`/admin/admin-desk/requests/${r.id}`)}
+                            className="hover:bg-gray-50 cursor-pointer transition-colors"
+                          >
+                            <td className="py-3.5 px-4">
+                              <div className="font-semibold text-gray-900">{r.alumniName}</div>
+                              <div className="text-[11px] text-gray-500 flex items-center gap-1.5 mt-0.5">
+                                <span className="font-mono font-bold text-[#0F2A4A]">{r.id}</span>
+                                {r.department && <span>&bull; {r.department}</span>}
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <div className="font-medium text-gray-800">{r.services[0]?.serviceName || 'Academic Document'}</div>
+                              <div className="text-[11px] text-gray-500">{r.delivery.method}</div>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span
+                                className={`text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${
+                                  isDelivered
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : isRejected
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : isCancelled
+                                    ? 'bg-slate-100 text-slate-600'
+                                    : stageIdx <= 1
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-blue-100 text-blue-800'
+                                }`}
+                              >
+                                {isRejected
+                                  ? 'Rejected'
+                                  : isCancelled
+                                  ? 'Cancelled'
+                                  : isDelivered
+                                  ? `Step 6 of 6: Delivered`
+                                  : `Step ${stageIdx + 1} of 6: ${currentStageDef.label}`}
                               </span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <div className="font-semibold text-gray-900">{r.alumniName}</div>
-                            <div className="text-[11px] text-gray-500">
-                              {r.baustId} &bull; {r.department}
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <div className="font-medium text-gray-800 line-clamp-1">{r.services[0]?.serviceName}</div>
-                            <div className="text-[11px] text-gray-500">{r.delivery.method}</div>
-                          </td>
-                          <td className="py-3.5 px-4 text-gray-500 whitespace-nowrap">
-                            {r.submittedAt}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <div className="font-bold text-gray-900">৳{r.payment.totalAmount}</div>
-                            <span
-                              className={`text-[10px] font-semibold px-1.5 py-0.2 rounded ${
-                                r.payment.isVerified
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'bg-amber-50 text-amber-700'
-                              }`}
-                            >
-                              {r.payment.isVerified ? 'Verified' : 'Unverified'}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <span
-                              className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap ${
-                                r.status === 'Action Required'
-                                  ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
-                                  : r.status === 'Delivered'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : r.status === 'Ready'
-                                  ? 'bg-green-100 text-green-800'
-                                  : r.status === 'Rejected'
-                                  ? 'bg-red-100 text-red-800'
-                                  : r.status === 'Approved'
-                                  ? 'bg-indigo-100 text-indigo-800'
-                                  : 'bg-blue-100 text-blue-800'
-                              }`}
-                            >
-                              {r.status}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-gray-600 text-[11px] whitespace-nowrap">
-                            {r.assignedStaffName || 'Unassigned'}
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={e => {
-                                e.stopPropagation();
-                                navigate(`/admin/admin-desk/requests/${r.id}`);
-                              }}
-                              className="px-3 py-1.5 bg-[#0F2A4A] hover:bg-[#1a3d66] text-white font-bold text-xs rounded-lg transition-colors inline-flex items-center gap-1"
-                            >
-                              <span>Manage</span>
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                            </td>
+                            <td className="py-3.5 px-4 text-gray-500 whitespace-nowrap">
+                              {r.submittedAt}
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/admin/admin-desk/requests/${r.id}`);
+                                }}
+                                className="px-3.5 py-1.5 bg-[#0F2A4A] hover:bg-[#1a3d66] text-white font-bold text-xs rounded-lg transition-colors inline-flex items-center gap-1"
+                              >
+                                <span>Open</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -544,11 +591,10 @@ export const AdminAdminDeskPage: React.FC = () => {
                       <Edit2 className="w-3.5 h-3.5" /> Edit
                     </button>
                     <button
-                      onClick={() => {
-                        if (window.confirm(`Delete service "${service.name}"?`)) {
-                          deleteService(service.id);
-                        }
-                      }}
+                      type="button"
+                      onClick={() =>
+                        setPendingDelete({ type: 'service', id: service.id, label: service.name })
+                      }
                       className="px-2 py-1.5 text-red-500 hover:text-red-700 rounded-lg hover:bg-red-50 transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -622,11 +668,10 @@ export const AdminAdminDeskPage: React.FC = () => {
                       <Edit2 className="w-3.5 h-3.5" /> Edit
                     </button>
                     <button
-                      onClick={() => {
-                        if (window.confirm(`Delete notice "${notice.title}"?`)) {
-                          deleteNotice(notice.id);
-                        }
-                      }}
+                      type="button"
+                      onClick={() =>
+                        setPendingDelete({ type: 'notice', id: notice.id, label: notice.title })
+                      }
                       className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -724,11 +769,10 @@ export const AdminAdminDeskPage: React.FC = () => {
                           <Edit2 className="w-3.5 h-3.5" /> Edit
                         </button>
                         <button
-                          onClick={() => {
-                            if (window.confirm(`Delete vacancy "${v.title}"?`)) {
-                              deleteVacancy(v.id);
-                            }
-                          }}
+                          type="button"
+                          onClick={() =>
+                            setPendingDelete({ type: 'vacancy', id: v.id, label: v.title })
+                          }
                           className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -991,6 +1035,48 @@ export const AdminAdminDeskPage: React.FC = () => {
           updateApplicationStatus(appId, newStatus, schedule, notes);
         }}
       />
+
+      <Modal
+        isOpen={Boolean(pendingDelete)}
+        onClose={() => setPendingDelete(null)}
+        title={`Delete ${
+          pendingDelete?.type === 'service'
+            ? 'Service'
+            : pendingDelete?.type === 'notice'
+            ? 'Notice'
+            : 'Vacancy'
+        }`}
+        description="This action removes the selected item from the university catalog."
+        maxWidth="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Are you sure you want to delete <strong>"{pendingDelete?.label}"</strong>?
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setPendingDelete(null)}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!pendingDelete) return;
+                if (pendingDelete.type === 'service') deleteService(pendingDelete.id);
+                if (pendingDelete.type === 'notice') deleteNotice(pendingDelete.id);
+                if (pendingDelete.type === 'vacancy') deleteVacancy(pendingDelete.id);
+                setPendingDelete(null);
+              }}
+              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-xs font-bold text-white cursor-pointer"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

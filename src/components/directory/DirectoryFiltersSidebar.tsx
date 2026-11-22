@@ -20,6 +20,7 @@ import {
 import { Department } from '../../types';
 import { SavedSearchSet } from '../../types/directory';
 import { useDirectoryStore } from '../../hooks/useDirectoryStore';
+import { BAUST_DEPARTMENTS, BAUST_SECTORS } from '../../constants/baustDataModel';
 
 export interface FilterState {
   searchTerm: string;
@@ -42,8 +43,8 @@ interface DirectoryFiltersSidebarProps {
   totalFilteredCount: number;
 }
 
-const DEPARTMENTS: Department[] = ['CSE', 'EEE', 'CE', 'ME', 'IPE', 'Textile', 'BBA', 'English'];
-const SECTORS = ['All', 'Private', 'Government', 'Abroad', 'Research', 'Business', 'Freelancing'];
+const DEPARTMENTS: Department[] = BAUST_DEPARTMENTS.map((d) => d.code);
+const SECTORS = ['All', ...BAUST_SECTORS];
 const COUNTRIES = ['All', 'Bangladesh', 'Germany', 'Canada', 'Australia', 'Singapore', 'Saudi Arabia', 'United Kingdom'];
 
 export const DirectoryFiltersSidebar: React.FC<DirectoryFiltersSidebarProps> = ({
@@ -93,7 +94,7 @@ export const DirectoryFiltersSidebar: React.FC<DirectoryFiltersSidebarProps> = (
       sector: s.sector || 'All',
       departments: s.department !== 'All' ? [s.department as Department] : [],
       batchMin: s.batchMin || 1,
-      batchMax: s.batchMax || 16,
+      batchMax: s.batchMax || 40,
       cgpaMin: s.cgpaMin || 0,
       mentoringOnly: s.mentoringOnly || false,
       referralsOnly: s.referralsOnly || false,
@@ -205,7 +206,7 @@ export const DirectoryFiltersSidebar: React.FC<DirectoryFiltersSidebarProps> = (
           />
           <div className="flex justify-between text-[10px] text-slate-400">
             <span>1st Batch (Pioneers)</span>
-            <span>16th Batch</span>
+            <span>40th Batch</span>
           </div>
         </div>
       </div>

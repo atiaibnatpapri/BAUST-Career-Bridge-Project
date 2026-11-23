@@ -30,7 +30,7 @@ export const Input: React.FC<InputProps> = ({
           {label}
         </label>
       )}
-      <div className="relative rounded-xl">
+      <div className="relative rounded-lg">
         {leftIcon && (
           <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
             {leftIcon}
@@ -39,11 +39,11 @@ export const Input: React.FC<InputProps> = ({
         <input
           id={inputId}
           aria-invalid={Boolean(error)}
-          className={`w-full bg-white border text-sm rounded-xl px-3.5 py-2.5 text-slate-900 transition-colors placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F2A4A] focus:border-transparent ${
+          className={`w-full min-h-[44px] bg-white border text-sm rounded-lg px-3.5 py-2.5 text-slate-900 transition-colors duration-150 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#14B8A6]/40 focus:border-[#0F2A4A] ${
             leftIcon ? 'pl-10' : ''
           } ${
             error
-              ? 'border-rose-400 focus:ring-rose-500'
+              ? 'border-rose-400 focus:ring-rose-500/30 focus:border-rose-500'
               : 'border-slate-300 hover:border-slate-400'
           } ${className}`}
           {...props}
@@ -84,7 +84,7 @@ export const Select: React.FC<SelectProps> = ({
       )}
       <select
         id={selectId}
-        className={`w-full bg-white border text-sm rounded-xl px-3.5 py-2.5 text-slate-900 transition-colors focus:outline-none focus:ring-2 focus:ring-[#0F2A4A] focus:border-transparent ${
+        className={`w-full min-h-[44px] bg-white border text-sm rounded-lg px-3.5 py-2.5 text-slate-900 transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[#14B8A6]/40 focus:border-[#0F2A4A] ${
           error ? 'border-rose-400' : 'border-slate-300 hover:border-slate-400'
         } ${className}`}
         {...props}
@@ -127,7 +127,7 @@ export const Textarea: React.FC<TextareaProps> = ({
       <textarea
         id={textareaId}
         rows={rows}
-        className={`w-full bg-white border text-sm rounded-xl px-3.5 py-2.5 text-slate-900 transition-colors placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F2A4A] focus:border-transparent ${
+        className={`w-full bg-white border text-sm rounded-lg px-3.5 py-2.5 text-slate-900 transition-colors duration-150 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#14B8A6]/40 focus:border-[#0F2A4A] ${
           error ? 'border-rose-400' : 'border-slate-300 hover:border-slate-400'
         } ${className}`}
         {...props}

@@ -32,7 +32,7 @@ export const ToastContainer: React.FC = () => {
         return (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex items-start gap-3 p-4 rounded-xl shadow-lg border transition-all transform translate-y-0 ${borders[toast.type]}`}
+            className={`pointer-events-auto flex items-start gap-3 p-4 rounded-2xl shadow-lg border transition-all duration-150 transform translate-y-0 ${borders[toast.type]}`}
           >
             {icons[toast.type]}
             <div className="flex-1 min-w-0">

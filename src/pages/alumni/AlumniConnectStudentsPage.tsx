@@ -4,7 +4,9 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useApp } from '../../context/AppContext';
+import { buildChatLink } from '../../constants/baustDataModel';
 import { subscribeFirestoreUsers } from '../../services/firestorePortal';
 import { Card } from '../../components/ui/Card';
 import { Avatar } from '../../components/ui/Avatar';
@@ -17,6 +19,8 @@ import { toList } from '../../utils/utils';
 import { Users, Search, MessageSquare, GraduationCap, AlertCircle } from 'lucide-react';
 
 export const AlumniConnectStudentsPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { openOrCreateConversation } = useApp();
   const [users, setUsers] = useState<Record<string, any>[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -145,16 +149,18 @@ export const AlumniConnectStudentsPage: React.FC = () => {
                 </div>
               </div>
 
-              <Link to={`/chat?user=${stu.id}`}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  leftIcon={<MessageSquare className="w-3.5 h-3.5" />}
-                >
-                  Message Student
-                </Button>
-              </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                leftIcon={<MessageSquare className="w-3.5 h-3.5" />}
+                onClick={async () => {
+                  const convId = await openOrCreateConversation(stu.id, 'directory');
+                  navigate(buildChatLink('alumni', convId));
+                }}
+              >
+                Message Student
+              </Button>
             </Card>
           ))}
         </div>

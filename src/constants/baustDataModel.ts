@@ -59,7 +59,9 @@ export const JOB_APPLICATION_STATUS_VALUES = [
   'Applied',
   'Under Review',
   'Shortlisted',
+  'Call for Interview',
   'Interview',
+  'Offered',
   'Accepted',
   'Rejected',
   'On Hold',
@@ -553,6 +555,8 @@ export interface AppointmentSlotEntity {
   alumniCompany?: string;
   alumniAvatar?: string;
   date: string;
+  startTime?: string;
+  endTime?: string;
   timeSlot: string;
   mode: 'Google Meet' | 'On-Campus' | 'Phone';
   meetingLink?: string;

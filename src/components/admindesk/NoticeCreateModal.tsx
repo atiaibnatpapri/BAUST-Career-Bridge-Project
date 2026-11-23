@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Bell, Pin, AlertTriangle, Calendar, Paperclip, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { NoticeItem } from '../../types/admindesk';
+import { cleanPayload } from '../../services/firestoreUtils';
 
 interface NoticeCreateModalProps {
   isOpen: boolean;
@@ -61,20 +62,22 @@ export const NoticeCreateModal: React.FC<NoticeCreateModalProps> = ({
     e.preventDefault();
     if (!title.trim() || !content.trim()) return;
 
-    onSave({
-      ...(editingNotice ? { id: editingNotice.id } : {}),
-      title: title.trim(),
-      titleBn: titleBn.trim() || undefined,
-      category,
-      audience,
-      isPinned,
-      isUrgent,
-      content: content.trim(),
-      status: 'Published',
-      eventDate: eventDate.trim() || undefined,
-      eventLocation: eventLocation.trim() || undefined,
-      attachments: attachments.length > 0 ? attachments : undefined
-    });
+    onSave(
+      cleanPayload({
+        ...(editingNotice ? { id: editingNotice.id } : {}),
+        title: title.trim(),
+        ...(titleBn.trim() ? { titleBn: titleBn.trim() } : {}),
+        category,
+        audience,
+        isPinned,
+        isUrgent,
+        content: content.trim(),
+        status: 'Published',
+        ...(eventDate.trim() ? { eventDate: eventDate.trim() } : {}),
+        ...(eventLocation.trim() ? { eventLocation: eventLocation.trim() } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      })
+    );
 
     onClose();
   };

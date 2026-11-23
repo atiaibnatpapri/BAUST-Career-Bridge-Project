@@ -23,6 +23,8 @@ import {
   Sparkles
 } from 'lucide-react';
 import { DirectoryAlumniProfile } from '../../types/directory';
+import { useApp } from '../../context/AppContext';
+import { buildChatLink } from '../../constants/baustDataModel';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 
@@ -54,6 +56,7 @@ export const AlumniDirectoryCard: React.FC<AlumniDirectoryCardProps> = ({
   viewMode = 'grid'
 }) => {
   const navigate = useNavigate();
+  const { openOrCreateConversation, role } = useApp();
 
   // Match score calculation heuristic for demo
   const matchScore = React.useMemo(() => {
@@ -203,13 +206,17 @@ export const AlumniDirectoryCard: React.FC<AlumniDirectoryCardProps> = ({
               Request Mentorship
             </Link>
           ) : (
-            <Link
-              to={`/chat?user=${profile.id}`}
-              className="text-xs font-semibold px-3 py-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors flex items-center gap-1.5"
+            <button
+              type="button"
+              onClick={async () => {
+                const convId = await openOrCreateConversation(profile.id, 'directory');
+                navigate(buildChatLink(role, convId));
+              }}
+              className="text-xs font-semibold px-3 py-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <MessageSquare className="w-3.5 h-3.5" />
               Message
-            </Link>
+            </button>
           )}
 
           <Link
@@ -406,12 +413,16 @@ export const AlumniDirectoryCard: React.FC<AlumniDirectoryCardProps> = ({
               Mentorship
             </Link>
           ) : (
-            <Link
-              to={`/chat?user=${profile.id}`}
-              className="flex-1 py-2 px-3 text-center text-xs font-bold rounded-xl bg-navy text-white hover:bg-[#0b1f36] transition-colors shadow-xs"
+            <button
+              type="button"
+              onClick={async () => {
+                const convId = await openOrCreateConversation(profile.id, 'directory');
+                navigate(buildChatLink(role, convId));
+              }}
+              className="flex-1 py-2 px-3 text-center text-xs font-bold rounded-xl bg-navy text-white hover:bg-[#0b1f36] transition-colors shadow-xs cursor-pointer"
             >
               Message
-            </Link>
+            </button>
           )}
         </div>
       </div>

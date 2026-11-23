@@ -318,7 +318,7 @@ export const GoogleDriveVaultPage: React.FC = () => {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 onClick={() => setIsFolderModalOpen(true)}
                 leftIcon={<FolderPlus className="w-4 h-4" />}
               >

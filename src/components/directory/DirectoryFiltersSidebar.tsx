@@ -384,9 +384,11 @@ export const DirectoryFiltersSidebar: React.FC<DirectoryFiltersSidebarProps> = (
                     ✦ {s.title}
                   </button>
                   <button
+                    type="button"
                     onClick={() => deleteSavedSearch(s.id)}
-                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 transition-opacity p-0.5"
+                    className="opacity-70 sm:opacity-60 group-hover:opacity-100 focus-visible:opacity-100 text-slate-500 hover:text-rose-600 transition-opacity p-0.5 cursor-pointer"
                     title="Delete saved search"
+                    aria-label={`Delete saved search ${s.title}`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>

@@ -90,7 +90,7 @@ export class ErrorBoundary extends React.Component<
             lang === 'bn' ? 'font-bengali leading-relaxed' : ''
           }`}
         >
-          <div className="max-w-lg w-full bg-white rounded-3xl border border-slate-200 shadow-lg p-6 sm:p-8 text-center space-y-5">
+          <div className="max-w-lg w-full bg-white rounded-2xl border border-slate-200 shadow-lg p-6 sm:p-8 text-center space-y-5">
             <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center mx-auto">
               <AlertTriangle className="w-7 h-7 text-rose-600" />
             </div>
@@ -111,11 +111,11 @@ export class ErrorBoundary extends React.Component<
                 <ChevronDown className="w-4 h-4 text-slate-400" />
               </summary>
               <div className="mt-2.5 pt-2.5 border-t border-slate-200 space-y-2">
-                <p className="font-mono text-[11px] text-rose-700 break-words">
+                <p className="font-mono text-xs text-rose-700 break-words">
                   {this.state.errorMessage || 'Unknown runtime error'}
                 </p>
                 {this.state.errorStack && (
-                  <pre className="text-[10px] text-slate-500 bg-white border border-slate-200 rounded-xl p-2 overflow-x-auto max-h-36 whitespace-pre-wrap">
+                  <pre className="text-xs text-slate-500 bg-white border border-slate-200 rounded-xl p-2 overflow-x-auto max-h-36 whitespace-pre-wrap">
                     {this.state.errorStack}
                   </pre>
                 )}

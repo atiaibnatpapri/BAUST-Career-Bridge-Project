@@ -181,9 +181,14 @@ export const DocumentServiceActionPage: React.FC<DocumentServiceActionPageProps>
             <p className="text-xs sm:text-sm text-white/80 max-w-2xl">{cfg.subtitle}</p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <Link to={`${deskBase}/document-requests/history`}>
-              <Button variant="outline" size="sm" className="text-white border-white/30 hover:bg-white/10" leftIcon={<History className="w-4 h-4" />}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
+                leftIcon={<History className="w-4 h-4" />}
+              >
                 My Request History ({documentRequests.length})
               </Button>
             </Link>
@@ -237,8 +242,8 @@ export const DocumentServiceActionPage: React.FC<DocumentServiceActionPageProps>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-50">
+                  <tr className="border-b border-slate-200 text-xs font-bold uppercase text-slate-600">
                     <th className="py-3 px-4">Document / Service</th>
                     <th className="py-3 px-4">Category</th>
                     <th className="py-3 px-4">Base Fee</th>
@@ -249,12 +254,12 @@ export const DocumentServiceActionPage: React.FC<DocumentServiceActionPageProps>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {safeServices.map((srv) => (
-                    <tr key={srv.id} className="hover:bg-slate-50/70">
+                    <tr key={srv.id} className="even:bg-slate-50/40 hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-4 font-bold text-[#0F2A4A]">{srv.name}</td>
                       <td className="py-3 px-4 text-slate-600">{srv.category}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-slate-900">BDT {srv.fee}</td>
-                      <td className="py-3 px-4 text-slate-600">{srv.processingDaysNormal} working days</td>
-                      <td className="py-3 px-4 text-amber-700 font-semibold">+BDT {srv.urgentFeeExtra}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900 tabular-nums">BDT {srv.fee}</td>
+                      <td className="py-3 px-4 text-slate-600 tabular-nums">{srv.processingDaysNormal} working days</td>
+                      <td className="py-3 px-4 text-amber-700 font-semibold tabular-nums">+BDT {srv.urgentFeeExtra}</td>
                       <td className="py-3 px-4 text-right">
                         <Button
                           size="sm"

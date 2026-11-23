@@ -8,6 +8,7 @@ import {
   arrayRemove,
   arrayUnion,
   collection,
+  deleteDoc,
   doc,
   DocumentData,
   getDoc,
@@ -27,6 +28,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { auth, db, isTransientFirestoreError } from '../firebase';
+import { cleanPayload } from './firestoreUtils';
 import {
   AppNotificationEntity,
   AppointmentSlotEntity,
@@ -73,18 +75,21 @@ export async function triggerNotification(params: {
   if (!auth.currentUser || !params.recipientId) return null;
   const resolvedRef = params.refId || params.itemId || '';
   try {
-    const ref = await addDoc(collection(db, 'notifications'), {
-      recipientId: params.recipientId,
-      senderId: auth.currentUser.uid,
-      title: params.title,
-      message: params.message,
-      type: params.type,
-      link: params.link,
-      itemId: resolvedRef,
-      refId: resolvedRef,
-      read: false,
-      createdAt: serverTimestamp(),
-    });
+    const ref = await addDoc(
+      collection(db, 'notifications'),
+      cleanPayload({
+        recipientId: params.recipientId,
+        senderId: auth.currentUser.uid,
+        title: params.title,
+        message: params.message,
+        type: params.type,
+        link: params.link,
+        itemId: resolvedRef,
+        refId: resolvedRef,
+        read: false,
+        createdAt: serverTimestamp(),
+      })
+    );
     return ref.id;
   } catch (err) {
     console.warn('Notification dispatch note:', err);
@@ -105,7 +110,7 @@ export async function upsertChatNotification(params: {
   try {
     await setDoc(
       doc(db, 'notifications', notifDocId),
-      {
+      cleanPayload({
         recipientId: params.recipientId,
         senderId: params.senderId,
         type: 'chat',
@@ -117,7 +122,7 @@ export async function upsertChatNotification(params: {
         read: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      },
+      }),
       { merge: true }
     );
   } catch (err) {
@@ -255,34 +260,37 @@ export async function openOrCreateFirestoreConversation(params: {
   }
 
   const sortedIds = [params.currentUid, params.participantUid].sort((a, b) => a.localeCompare(b));
-  await setDoc(convRef, {
-    id: convId,
-    participantIds: sortedIds,
-    participants: {
-      [params.currentUid]: {
-        name: params.currentName || 'BAUST Member',
-        role: params.currentRole,
-        photoURL: params.currentAvatar || '',
-        title: params.currentTitle || '',
+  await setDoc(
+    convRef,
+    cleanPayload({
+      id: convId,
+      participantIds: sortedIds,
+      participants: {
+        [params.currentUid]: {
+          name: params.currentName || 'BAUST Member',
+          role: params.currentRole,
+          photoURL: params.currentAvatar || '',
+          title: params.currentTitle || '',
+        },
+        [params.participantUid]: {
+          name: params.participantName || 'BAUST Member',
+          role: params.participantRole,
+          photoURL: params.participantAvatar || '',
+          title: params.participantTitle || '',
+        },
       },
-      [params.participantUid]: {
-        name: params.participantName || 'BAUST Member',
-        role: params.participantRole,
-        photoURL: params.participantAvatar || '',
-        title: params.participantTitle || '',
+      lastMessage: '',
+      lastMessageAt: serverTimestamp(),
+      lastSenderId: '',
+      unreadCount: {
+        [params.currentUid]: 0,
+        [params.participantUid]: 0,
       },
-    },
-    lastMessage: '',
-    lastMessageAt: serverTimestamp(),
-    lastSenderId: '',
-    unreadCount: {
-      [params.currentUid]: 0,
-      [params.participantUid]: 0,
-    },
-    source: params.source || 'directory',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+      source: params.source || 'directory',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  );
 
   return convId;
 }
@@ -498,16 +506,19 @@ export async function sendFirestoreMessage(params: {
   const msgRef = doc(collection(db, 'conversations', params.conversationId, 'messages'));
 
   const batch = writeBatch(db);
-  batch.set(msgRef, {
-    senderId: params.senderId,
-    senderName: params.senderName,
-    senderAvatar: params.senderAvatar || '',
-    text: cleanText,
-    type: 'text',
-    readBy: [params.senderId],
-    ...(params.attachment ? { attachment: params.attachment } : {}),
-    createdAt: serverTimestamp(),
-  });
+  batch.set(
+    msgRef,
+    cleanPayload({
+      senderId: params.senderId,
+      senderName: params.senderName,
+      senderAvatar: params.senderAvatar || '',
+      text: cleanText,
+      type: 'text',
+      readBy: [params.senderId],
+      ...(params.attachment ? { attachment: params.attachment } : {}),
+      createdAt: serverTimestamp(),
+    })
+  );
 
   const convUpdate: Record<string, any> = {
     lastMessage: summaryText,
@@ -623,13 +634,16 @@ export function subscribeKnowledgeSessions(
 export async function createKnowledgeSession(
   payload: Omit<KnowledgeSessionEntity, 'id' | 'registeredIds' | 'status' | 'createdAt'>
 ): Promise<string> {
-  const ref = await addDoc(collection(db, 'knowledgeSessions'), {
-    ...payload,
-    registeredIds: [payload.hostId],
-    status: 'Scheduled',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const ref = await addDoc(
+    collection(db, 'knowledgeSessions'),
+    cleanPayload({
+      ...payload,
+      registeredIds: [payload.hostId],
+      status: 'Scheduled',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  );
 
   void triggerNotification({
     recipientId: 'ALL_STUDENTS',
@@ -718,6 +732,8 @@ export function subscribeAppointmentSlots(
           alumniCompany: data.alumniCompany || '',
           alumniAvatar: data.alumniAvatar || '',
           date: data.date || '',
+          startTime: data.startTime || '',
+          endTime: data.endTime || '',
           timeSlot: data.timeSlot || '',
           mode:
             data.mode === 'On-Campus' || data.mode === 'Phone' ? data.mode : 'Google Meet',
@@ -746,18 +762,66 @@ export function subscribeAppointmentSlots(
 export async function publishAppointmentSlot(
   payload: Omit<AppointmentSlotEntity, 'id' | 'status' | 'createdAt' | 'updatedAt'>
 ): Promise<string> {
-  const ref = await addDoc(collection(db, 'appointments'), {
-    ...payload,
-    meetingLink: payload.meetingLink || `https://meet.google.com/baust-${Math.random().toString(36).slice(2, 6)}`,
-    status: 'available',
-    bookedByStudentId: '',
-    bookedByStudentName: '',
-    bookedByStudentEmail: '',
-    bookingNote: '',
-    createdAt: serverTimestamp(),
+  const ref = await addDoc(
+    collection(db, 'appointments'),
+    cleanPayload({
+      ...payload,
+      startTime: payload.startTime || '',
+      endTime: payload.endTime || '',
+      meetingLink: payload.meetingLink || `https://meet.google.com/baust-${Math.random().toString(36).slice(2, 6)}`,
+      status: 'available',
+      bookedByStudentId: '',
+      bookedByStudentName: '',
+      bookedByStudentEmail: '',
+      bookingNote: '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  );
+  return ref.id;
+}
+
+export async function updateAppointmentSlot(
+  slotId: string,
+  patch: {
+    date: string;
+    startTime: string;
+    endTime: string;
+    timeSlot: string;
+    mode: 'Google Meet' | 'On-Campus' | 'Phone';
+    meetingLink?: string;
+    topic: string;
+  }
+): Promise<void> {
+  const slotRef = doc(db, 'appointments', slotId);
+  const snap = await getDoc(slotRef);
+  if (!snap.exists()) {
+    throw new Error('This appointment slot no longer exists.');
+  }
+  const currentStatus = snap.data()?.status;
+  if (currentStatus === 'booked' || currentStatus === 'completed') {
+    throw new Error('Cannot edit a slot that is already booked or completed.');
+  }
+  await updateDoc(slotRef, {
+    date: patch.date,
+    startTime: patch.startTime,
+    endTime: patch.endTime,
+    timeSlot: patch.timeSlot,
+    mode: patch.mode,
+    meetingLink: (patch.meetingLink || '').trim() || snap.data()?.meetingLink || '',
+    topic: patch.topic.trim(),
     updatedAt: serverTimestamp(),
   });
-  return ref.id;
+}
+
+export async function deleteAppointmentSlot(slotId: string): Promise<void> {
+  const slotRef = doc(db, 'appointments', slotId);
+  const snap = await getDoc(slotRef);
+  if (!snap.exists()) return;
+  if (snap.data()?.status === 'booked') {
+    throw new Error('Cannot delete an already booked slot. Cancel it first.');
+  }
+  await deleteDoc(slotRef);
 }
 
 export async function bookAppointmentSlotTransaction(params: {
@@ -940,12 +1004,15 @@ export async function createCVReviewRequest(
   if (!payload.mentorId) {
     throw new Error('Please choose a specific alumni mentor to review your CV.');
   }
-  const ref = await addDoc(collection(db, 'cvReviews'), {
-    ...payload,
-    status: 'Submitted',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const ref = await addDoc(
+    collection(db, 'cvReviews'),
+    cleanPayload({
+      ...payload,
+      status: 'Submitted',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  );
 
   void triggerNotification({
     recipientId: payload.mentorId,
@@ -1031,11 +1098,14 @@ export async function submitStudentEvaluation(
   payload: Omit<EvaluationEntity, 'id' | 'createdAt'>
 ): Promise<string> {
   const clamped = Math.min(5, Math.max(1, Math.round(payload.rating)));
-  const ref = await addDoc(collection(db, 'evaluations'), {
-    ...payload,
-    rating: clamped,
-    createdAt: serverTimestamp(),
-  });
+  const ref = await addDoc(
+    collection(db, 'evaluations'),
+    cleanPayload({
+      ...payload,
+      rating: clamped,
+      createdAt: serverTimestamp(),
+    })
+  );
 
   if (payload.alumniId) {
     void triggerNotification({
@@ -1094,12 +1164,15 @@ export function subscribeReports(
 export async function submitModerationReport(
   payload: Omit<ReportEntity, 'id' | 'status' | 'createdAt' | 'updatedAt'>
 ): Promise<string> {
-  const ref = await addDoc(collection(db, 'reports'), {
-    ...payload,
-    status: 'Pending',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const ref = await addDoc(
+    collection(db, 'reports'),
+    cleanPayload({
+      ...payload,
+      status: 'Pending',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  );
 
   void triggerNotification({
     recipientId: 'ALL_ADMINS',
@@ -1120,12 +1193,15 @@ export async function resolveModerationReport(params: {
   reviewerName: string;
   resolutionNote: string;
 }): Promise<void> {
-  await updateDoc(doc(db, 'reports', params.report.id), {
-    status: params.status,
-    reviewedBy: params.reviewerName,
-    resolutionNote: params.resolutionNote,
-    updatedAt: serverTimestamp(),
-  });
+  await updateDoc(
+    doc(db, 'reports', params.report.id),
+    cleanPayload({
+      status: params.status,
+      reviewedBy: params.reviewerName,
+      resolutionNote: params.resolutionNote,
+      updatedAt: serverTimestamp(),
+    })
+  );
 
   void triggerNotification({
     recipientId: params.report.reporterId,

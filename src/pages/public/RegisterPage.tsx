@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input, Select } from '../../components/ui/Input';
+import { CampusHeroBackdrop } from '../../components/ui/CampusHeroBackdrop';
 import { Department } from '../../types';
 import {
   BAUST_DEPARTMENTS,
@@ -412,8 +413,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
 
   if (submittedSuccess) {
     return (
-      <div className="min-h-[80vh] flex items-center justify-center py-12 px-4">
-        <Card className="w-full max-w-lg p-8 text-center space-y-6 border-slate-200 shadow-md">
+      <div className="relative min-h-screen flex items-center justify-center pt-24 pb-12 px-4 overflow-hidden">
+        <CampusHeroBackdrop />
+        <Card className="relative z-10 w-full max-w-lg p-8 text-center space-y-6 border-white/20 shadow-2xl">
           <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border-2 border-amber-200">
             <Clock className="w-8 h-8" />
           </div>
@@ -422,7 +424,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
             <span className="inline-block text-xs font-bold uppercase tracking-wider text-amber-800 bg-amber-100 px-3 py-1 rounded-full">
               {t.status.pending}
             </span>
-            <h1 className="text-2xl font-black text-[#0F2A4A]">
+            <h1 className="text-2xl font-bold text-[#0F2A4A]">
               {t.auth.pendingSuccessTitle}
             </h1>
             <p className="text-xs text-slate-600 leading-relaxed max-w-md mx-auto">
@@ -452,49 +454,51 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
   }
 
   return (
-    <div className="min-h-[85vh] flex items-center justify-center py-8 px-4">
-      <div className="w-full max-w-2xl space-y-6">
+    <div className="relative min-h-screen flex items-center justify-center pt-24 pb-12 px-4 overflow-hidden">
+      <CampusHeroBackdrop />
+
+      <div className="relative z-10 w-full max-w-2xl space-y-6">
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-[#0F2A4A] border border-[#C9A227] flex items-center justify-center mx-auto shadow-md">
-            <GraduationCap className="w-7 h-7 text-[#C9A227]" />
+          <div className="w-12 h-12 rounded-2xl bg-[#0F2A4A]/90 border border-[#5EEAD4]/50 flex items-center justify-center mx-auto shadow-lg">
+            <GraduationCap className="w-7 h-7 text-[#5EEAD4]" />
           </div>
-          <h1 className="text-2xl font-black text-[#0F2A4A] tracking-tight">
+          <h1 className="text-2xl font-bold text-white tracking-tight">
             {t.auth.registerTitle}
           </h1>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-200">
             {t.auth.registerSubtitle}
           </p>
         </div>
 
         {/* Progress Indicator */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-200">
             <span>Step {step} of 2</span>
             <span>{step === 1 ? t.auth.whoAreYou : `${role.toUpperCase()}`}</span>
           </div>
-          <div className="grid grid-cols-2 gap-2 text-[11px] font-bold">
+          <div className="grid grid-cols-2 gap-2 text-xs font-bold">
             <div
-              className={`px-3 py-2 rounded-xl border flex items-center gap-2 ${
-                step === 2 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-white border-[#0F2A4A] text-[#0F2A4A]'
+              className={`px-3 py-2.5 rounded-xl border flex items-center gap-2 ${
+                step === 2 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-white border-white/40 text-[#0F2A4A]'
               }`}
             >
-              <span className="w-5 h-5 rounded-full bg-[#0F2A4A] text-white flex items-center justify-center text-[10px] shrink-0">
+              <span className="w-5 h-5 rounded-full bg-[#0F2A4A] text-white flex items-center justify-center text-xs shrink-0">
                 {step === 2 ? <Check className="w-3 h-3" /> : '1'}
               </span>
               <span className="truncate">1. {t.auth.whoAreYou}</span>
             </div>
             <div
-              className={`px-3 py-2 rounded-xl border flex items-center gap-2 ${
+              className={`px-3 py-2.5 rounded-xl border flex items-center gap-2 ${
                 step === 2 && credentialsComplete
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                   : step === 2
-                  ? 'bg-white border-[#0F2A4A] text-[#0F2A4A]'
-                  : 'bg-slate-50 border-slate-200 text-slate-400'
+                  ? 'bg-white border-white/40 text-[#0F2A4A]'
+                  : 'bg-white/15 border-white/20 text-slate-200'
               }`}
             >
               <span
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 ${
-                  step === 2 ? 'bg-[#0F2A4A] text-white' : 'bg-slate-200 text-slate-500'
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 ${
+                  step === 2 ? 'bg-[#0F2A4A] text-white' : 'bg-white/25 text-white'
                 }`}
               >
                 2
@@ -505,9 +509,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
         </div>
 
         {step === 1 ? (
-          <Card className="p-6 sm:p-8 border-slate-200 shadow-md space-y-6">
+          <Card className="p-6 sm:p-8 border-white/20 shadow-2xl space-y-6">
             <div className="space-y-1 text-center">
-              <h2 className="text-xl font-black text-[#0F2A4A]">{t.auth.whoAreYou}</h2>
+              <h2 className="text-xl font-bold text-[#0F2A4A]">{t.auth.whoAreYou}</h2>
               <p className="text-xs text-slate-500">
                 {t.auth.whoAreYouSub}
               </p>
@@ -522,18 +526,18 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
                   className={`p-5 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-4 bg-white ${card.borderClass}`}
                 >
                   <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
                         {card.icon}
                       </div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                         {card.badge}
                       </span>
                     </div>
-                    <h3 className="text-base font-black text-slate-900">
+                    <h3 className="text-base font-bold text-slate-900">
                       {language === 'bn' ? card.titleBn : card.titleEn}
                     </h3>
-                    <p className="text-xs text-slate-500 leading-relaxed">
+                    <p className="text-xs text-slate-600 leading-relaxed">
                       {language === 'bn' ? card.subtitleBn : card.subtitleEn}
                     </p>
                   </div>
@@ -547,17 +551,17 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
             </div>
           </Card>
         ) : (
-          <Card className="p-5 sm:p-8 border-slate-200 shadow-md">
+          <Card className="p-5 sm:p-8 border-white/20 shadow-2xl">
             <form onSubmit={handleSubmit} noValidate className="space-y-6">
               {/* Active Role Header */}
               <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                 <div className="flex items-center gap-2.5">
                   {ROLE_CARDS.find((c) => c.id === role)?.icon}
                   <div>
-                    <p className="text-xs font-black text-[#0F2A4A] uppercase tracking-wider">
+                    <p className="text-xs font-bold text-[#0F2A4A] uppercase tracking-wider">
                       Registering as {role}
                     </p>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-xs text-slate-500">
                       {ROLE_CARDS.find((c) => c.id === role)?.badge} · Requires Super Admin approval
                     </p>
                   </div>
@@ -583,7 +587,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
                       <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                       <span>{t.auth.errorSummaryHeading}</span>
                     </div>
-                    <ul className="list-disc pl-6 space-y-0.5 text-[11px]">
+                    <ul className="list-disc pl-6 space-y-0.5 text-xs">
                       {activeErrorEntries.map(([key, message]) => (
                         <li key={key}>{message}</li>
                       ))}
@@ -681,7 +685,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
                       <button
                         type="button"
                         onClick={() => setShowPassword((p) => !p)}
-                        className="absolute right-3 top-8 text-slate-400 hover:text-slate-700 cursor-pointer"
+                        className="absolute right-3 top-[34px] text-slate-400 hover:text-slate-700 cursor-pointer p-1"
                         aria-label={showPassword ? 'Hide password' : 'Show password'}
                       >
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -697,9 +701,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
                               style={{ width: `${(pwStrength.score / 4) * 100}%` }}
                             />
                           </div>
-                          <span className="text-[10px] font-bold text-slate-500">{pwStrength.label}</span>
+                          <span className="text-xs font-bold text-slate-500">{pwStrength.label}</span>
                         </div>
-                        <ul className="grid grid-cols-2 gap-1 text-[10px] text-slate-500">
+                        <ul className="grid grid-cols-2 gap-1 text-xs text-slate-500">
                           <li className={pwRules.minLength ? 'text-emerald-700 font-semibold' : ''}>
                             ✓ 8+ characters
                           </li>
@@ -894,7 +898,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
                             ? 'Upload Degree Certificate / Alumni Proof'
                             : 'Upload BAUST Student ID Card (Optional)')}
                       </p>
-                      <p className="text-[11px] text-slate-500">PNG, JPG, or PDF for Super Admin verification audit</p>
+                      <p className="text-xs text-slate-500">PNG, JPG, or PDF for Super Admin verification audit</p>
                     </div>
                   </div>
                   <input
@@ -906,7 +910,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
                   />
                   <label
                     htmlFor="register-doc-upload"
-                    className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer text-center shrink-0"
+                    className="px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer text-center shrink-0"
                   >
                     Choose File
                   </label>
@@ -931,7 +935,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
                           : 'You must agree to the BAUST Career Bridge Terms & Privacy Policy.',
                       }));
                     }}
-                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#0F2A4A] focus:ring-[#0F2A4A]"
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#0F2A4A] focus:ring-[#14B8A6]"
                   />
                   <span>
                     I confirm that my BAUST affiliation details are accurate and agree to the{' '}
@@ -962,9 +966,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ defaultRole }) => {
           </Card>
         )}
 
-        <p className="text-center text-xs text-slate-600">
+        <p className="text-center text-xs text-slate-200">
           {t.auth.alreadyRegistered}{' '}
-          <Link to="/login" className="font-bold text-[#0F2A4A] hover:underline">
+          <Link to="/login" className="font-bold text-[#5EEAD4] hover:underline">
             {t.auth.signInHere}
           </Link>
         </p>

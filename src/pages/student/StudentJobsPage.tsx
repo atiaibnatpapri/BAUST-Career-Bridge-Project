@@ -20,6 +20,9 @@ import { Badge } from '../../components/ui/Badge';
 import { Input, Textarea } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { Loader } from '../../components/ui/Loader';
+import { FileUploader } from '../../components/ui/FileUploader';
+import { FilePreviewModal } from '../../components/ui/FilePreviewModal';
+import { UploadFileResult } from '../../services/fileUploadService';
 import { toList } from '../../utils/utils';
 import { BAUST_DEPARTMENTS } from '../../constants/baustDataModel';
 import {
@@ -31,6 +34,8 @@ import {
   Building2,
   Calendar,
   AlertCircle,
+  FileText,
+  Eye,
 } from 'lucide-react';
 
 export const StudentJobsPage: React.FC = () => {
@@ -48,12 +53,14 @@ export const StudentJobsPage: React.FC = () => {
 
   const [applyModalJob, setApplyModalJob] = useState<JobPosting | null>(null);
   const [coverNote, setCoverNote] = useState('');
-  const [cvFileName, setCvFileName] = useState(userProfile?.cvFileName || 'BAUST_Student_CV.pdf');
+  const [cvMode, setCvMode] = useState<'saved' | 'upload'>('saved');
+  const [uploadedCv, setUploadedCv] = useState<UploadFileResult | null>(null);
+  const [cvError, setCvError] = useState<string | null>(null);
+  const [previewSavedCv, setPreviewSavedCv] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    setCvFileName(userProfile?.cvFileName || 'BAUST_Student_CV.pdf');
-  }, [userProfile?.cvFileName]);
+  const hasSavedCv = Boolean(userProfile?.cvUrl);
+  const savedCvName = userProfile?.cvName || userProfile?.cvFileName || 'Saved_Resume.pdf';
 
   useEffect(() => {
     setLoading(true);
@@ -78,7 +85,19 @@ export const StudentJobsPage: React.FC = () => {
     };
   }, [firebaseUser]);
 
-  const appliedJobIds = new Set(applications.map((a) => a.jobId));
+  const appliedJobIds = new Set(
+    applications
+      .filter((a) => a.status !== 'Withdrawn' && a.status !== 'Job Removed')
+      .map((a) => a.jobId)
+  );
+
+  const openApplyModal = (job: JobPosting) => {
+    setApplyModalJob(job);
+    setCoverNote('');
+    setUploadedCv(null);
+    setCvError(null);
+    setCvMode(userProfile?.cvUrl ? 'saved' : 'upload');
+  };
 
   const filteredJobs = jobs.filter((job) => {
     const q = searchTerm.trim().toLowerCase();
@@ -96,6 +115,25 @@ export const StudentJobsPage: React.FC = () => {
   const handleApply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!applyModalJob || !firebaseUser || !userProfile) return;
+
+    let finalCvUrl = '';
+    let finalCvName = '';
+    let finalCvDocId = '';
+
+    if (cvMode === 'saved' && hasSavedCv) {
+      finalCvUrl = userProfile.cvUrl || '';
+      finalCvName = savedCvName;
+      finalCvDocId = userProfile.cvFileDocId || '';
+    } else if (uploadedCv) {
+      finalCvUrl = uploadedCv.url;
+      finalCvName = uploadedCv.fileName;
+      finalCvDocId = uploadedCv.fileDocId || '';
+    } else {
+      setCvError('Please attach a PDF CV or select your saved CV before submitting.');
+      return;
+    }
+
+    setCvError(null);
     setSubmitting(true);
     try {
       const appId = await applyToJob({
@@ -109,20 +147,28 @@ export const StudentJobsPage: React.FC = () => {
         studentId: firebaseUser.uid,
         studentName: userProfile.name,
         studentEmail: userProfile.email,
+        applicantRole: userProfile.role,
+        applicantPhotoURL: userProfile.photoURL || userProfile.avatar || '',
         department: userProfile.department || 'CSE',
         batch: userProfile.batch || 'BAUST',
         cgpa: String(userProfile.cgpa ?? ''),
-        cvFileName: cvFileName.trim() || 'Student_CV.pdf',
+        cvFileName: finalCvName,
+        cvName: finalCvName,
+        cvUrl: finalCvUrl,
+        cvFileDocId: finalCvDocId,
         coverNote: coverNote.trim(),
         isDemo: Boolean(userProfile.isDemo),
       });
-      if (applyModalJob.postedById && applyModalJob.postedById !== firebaseUser.uid) {
-        const destLink =
-          applyModalJob.postedByRole === 'admin'
-            ? `/admin/jobs?app=${appId}`
-            : `/alumni/jobs?app=${appId}`;
+
+      const isAdminPosting =
+        applyModalJob.postedByRole === 'admin' || applyModalJob.postedByRole === 'superAdmin';
+      const targetRecipient = isAdminPosting ? 'ALL_ADMINS' : applyModalJob.postedById;
+      if (targetRecipient && targetRecipient !== firebaseUser.uid) {
+        const destLink = isAdminPosting
+          ? `/admin/jobs/applications/${appId}`
+          : `/alumni/jobs?app=${appId}`;
         void notify(
-          applyModalJob.postedById,
+          targetRecipient,
           'job',
           'New Job Application',
           `${userProfile.name} applied for ${applyModalJob.title} (${applyModalJob.company}).`,
@@ -133,6 +179,7 @@ export const StudentJobsPage: React.FC = () => {
       addToast('success', 'Application Submitted', `Applied to ${applyModalJob.title} at ${applyModalJob.company}`);
       setApplyModalJob(null);
       setCoverNote('');
+      setUploadedCv(null);
     } catch (err: any) {
       addToast('error', 'Application Failed', err?.message || 'Could not submit application.');
     } finally {
@@ -279,7 +326,7 @@ export const StudentJobsPage: React.FC = () => {
                       variant="primary"
                       size="sm"
                       className="bg-blue-600 hover:bg-blue-700"
-                      onClick={() => setApplyModalJob(job)}
+                      onClick={() => openApplyModal(job)}
                       rightIcon={<Send className="w-3.5 h-3.5" />}
                     >
                       Apply Now
@@ -298,14 +345,108 @@ export const StudentJobsPage: React.FC = () => {
         title={`Apply: ${applyModalJob?.title || ''}`}
         description={`${applyModalJob?.company || ''} · ${applyModalJob?.location || ''}`}
       >
-        <form onSubmit={handleApply} className="space-y-4">
-          <Input
-            label="Attached CV Filename"
-            required
-            value={cvFileName}
-            onChange={(e) => setCvFileName(e.target.value)}
-            placeholder="e.g. Tanvir_BAUST_CSE_CV.pdf"
-          />
+        <form onSubmit={handleApply} className="space-y-4 text-left">
+          <div className="space-y-2.5">
+            <label className="block text-xs font-bold text-slate-700">
+              Curriculum Vitae (PDF CV) <span className="text-rose-500">*</span>
+            </label>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label
+                className={`p-3 rounded-xl border text-xs cursor-pointer transition-colors ${
+                  cvMode === 'saved' && hasSavedCv
+                    ? 'border-[#0F2A4A] bg-blue-50/50 text-[#0F2A4A]'
+                    : !hasSavedCv
+                    ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-2 font-bold">
+                  <input
+                    type="radio"
+                    name="cvChoice"
+                    checked={cvMode === 'saved'}
+                    disabled={!hasSavedCv}
+                    onChange={() => {
+                      setCvMode('saved');
+                      setCvError(null);
+                    }}
+                  />
+                  <span>Use my saved CV</span>
+                </div>
+                <p className="text-[11px] mt-1 pl-5 truncate">
+                  {hasSavedCv ? savedCvName : 'No saved PDF CV on profile yet'}
+                </p>
+              </label>
+
+              <label
+                className={`p-3 rounded-xl border text-xs cursor-pointer transition-colors ${
+                  cvMode === 'upload'
+                    ? 'border-[#0F2A4A] bg-blue-50/50 text-[#0F2A4A]'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-2 font-bold">
+                  <input
+                    type="radio"
+                    name="cvChoice"
+                    checked={cvMode === 'upload'}
+                    onChange={() => {
+                      setCvMode('upload');
+                      setCvError(null);
+                    }}
+                  />
+                  <span>Upload a new PDF CV</span>
+                </div>
+                <p className="text-[11px] mt-1 pl-5 text-slate-500">Attach a tailored PDF for this role</p>
+              </label>
+            </div>
+
+            {cvMode === 'saved' && hasSavedCv && (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-800 truncate">{savedCvName}</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPreviewSavedCv(true)}
+                  leftIcon={<Eye className="w-3.5 h-3.5" />}
+                >
+                  Preview
+                </Button>
+              </div>
+            )}
+
+            {cvMode === 'upload' && (
+              <FileUploader
+                kind="cv"
+                uid={firebaseUser?.uid || ''}
+                docId={
+                  applyModalJob && firebaseUser
+                    ? `appcv_${applyModalJob.id}_${firebaseUser.uid}`
+                    : undefined
+                }
+                sharedWith={applyModalJob?.postedById ? [applyModalJob.postedById] : []}
+                currentUrl={uploadedCv?.url}
+                currentFileName={uploadedCv?.fileName}
+                onUploaded={(res) => {
+                  setUploadedCv(res);
+                  setCvError(null);
+                }}
+                onRemove={() => setUploadedCv(null)}
+              />
+            )}
+
+            {cvError && (
+              <p role="alert" className="text-xs text-rose-600 font-semibold">
+                {cvError}
+              </p>
+            )}
+          </div>
+
           <Textarea
             label="Cover Note / Why You Fit"
             required
@@ -329,6 +470,15 @@ export const StudentJobsPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <FilePreviewModal
+        isOpen={previewSavedCv}
+        onClose={() => setPreviewSavedCv(false)}
+        title="Saved Profile CV"
+        fileName={savedCvName}
+        url={userProfile?.cvUrl}
+        fileDocId={userProfile?.cvFileDocId}
+      />
     </div>
   );
 };

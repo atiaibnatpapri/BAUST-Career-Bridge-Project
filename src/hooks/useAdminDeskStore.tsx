@@ -17,6 +17,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { cleanPayload } from '../services/firestoreUtils';
 import { useAuth } from '../context/AuthContext';
 import {
   AdminDeskService,
@@ -245,19 +246,7 @@ function mapFirestoreStatusToDeskStatus(status: string): AdminDeskRequestStatus 
 }
 
 function stripUndefined<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map((item) => stripUndefined(item)) as unknown as T;
-  }
-  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-    const out: Record<string, any> = {};
-    Object.entries(value as Record<string, any>).forEach(([k, v]) => {
-      if (v !== undefined) {
-        out[k] = stripUndefined(v);
-      }
-    });
-    return out as T;
-  }
-  return value;
+  return cleanPayload(value);
 }
 
 function buildStatusHistoryEntry(

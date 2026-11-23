@@ -5,6 +5,7 @@
 
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, setPersistence, browserLocalPersistence, Auth } from 'firebase/auth';
+import { getStorage, FirebaseStorage } from 'firebase/storage';
 import {
   getFirestore,
   initializeFirestore,
@@ -42,6 +43,7 @@ export const app: FirebaseApp = getApps().length ? getApp() : initializeApp(fire
 
 function createFirestoreInstance(): Firestore {
   const settings = {
+    ignoreUndefinedProperties: true,
     experimentalAutoDetectLongPolling: true,
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager(),
@@ -61,6 +63,8 @@ function createFirestoreInstance(): Firestore {
 export const db: Firestore = createFirestoreInstance();
 
 export const auth: Auth = getAuth(app);
+
+export const storage: FirebaseStorage = getStorage(app);
 
 if (typeof window !== 'undefined') {
   setPersistence(auth, browserLocalPersistence).catch((err) => {

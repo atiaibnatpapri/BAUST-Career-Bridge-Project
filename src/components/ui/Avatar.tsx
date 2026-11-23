@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 
 interface AvatarProps {
@@ -24,6 +24,10 @@ export const Avatar: React.FC<AvatarProps> = ({
   className = '',
 }) => {
   const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [src]);
 
   const safeName = (name ?? '').trim() || 'User';
 

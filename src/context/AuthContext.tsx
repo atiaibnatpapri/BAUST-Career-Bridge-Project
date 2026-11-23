@@ -53,6 +53,7 @@ export interface UserProfileData {
   department: Department;
   batch: string;
   avatar: string;
+  photoURL?: string;
   phone?: string;
   bio?: string;
   office?: string;
@@ -95,6 +96,9 @@ export interface UserProfileData {
   interests?: string[];
   cvFileName?: string;
   cvUrl?: string;
+  cvFileDocId?: string;
+  cvName?: string;
+  cvUpdatedAt?: string;
 
   // Alumni / Admin specific
   headline?: string;
@@ -226,7 +230,8 @@ export function normalizeProfile(
     baustId: raw?.baustId ?? raw?.studentId ?? raw?.employeeId ?? '',
     department: normalizeDepartment(raw?.department),
     batch: normalizedBatch,
-    avatar: raw?.avatar || defaultAvatar,
+    avatar: raw?.photoURL || raw?.avatar || defaultAvatar,
+    photoURL: raw?.photoURL || raw?.avatar || defaultAvatar,
     phone: raw?.phone ?? '',
     bio: raw?.bio ?? '',
     office: raw?.office ?? '',
@@ -265,6 +270,9 @@ export function normalizeProfile(
     interests: toList(raw?.interests),
     cvFileName: raw?.cvFileName ?? '',
     cvUrl: raw?.cvUrl ?? '',
+    cvFileDocId: raw?.cvFileDocId ?? '',
+    cvName: raw?.cvName ?? raw?.cvFileName ?? '',
+    cvUpdatedAt: raw?.cvUpdatedAt ?? '',
     headline: raw?.headline ?? '',
     designation: raw?.designation ?? '',
     company: raw?.company ?? '',
@@ -829,6 +837,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         batch: safeBatch,
         passingYear: safePassingYear,
         avatar: defaultAvatar,
+        photoURL: defaultAvatar,
         phone: safePhone,
         bio: '',
         office: safeOffice,
@@ -857,6 +866,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         interests: [],
         cvFileName: '',
         cvUrl: '',
+        cvFileDocId: '',
+        cvName: '',
+        cvUpdatedAt: '',
         headline: '',
         designation: safeDesignation,
         company: params.role === 'admin' ? 'BAUST Administration' : safeCompany,
@@ -1046,7 +1058,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const sanitizedData = Object.fromEntries(
         Object.entries(safeData).filter(([, value]) => value !== undefined)
-      );
+      ) as Record<string, any>;
+
+      if (typeof sanitizedData.photoURL === 'string' && sanitizedData.avatar === undefined) {
+        sanitizedData.avatar = sanitizedData.photoURL;
+      } else if (typeof sanitizedData.avatar === 'string' && sanitizedData.photoURL === undefined) {
+        sanitizedData.photoURL = sanitizedData.avatar;
+      }
 
       await updateDoc(userDocRef, {
         ...sanitizedData,

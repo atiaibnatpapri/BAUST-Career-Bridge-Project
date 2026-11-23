@@ -29,6 +29,7 @@ import {
   Video,
   CalendarCheck,
   FileSearch,
+  FileCheck2,
   Flag,
   X,
 } from 'lucide-react';
@@ -54,23 +55,28 @@ const ROLE_THEME: Record<
   UserRole,
   {
     activeClass: string;
+    barClass: string;
     badgeBgClass: string;
   }
 > = {
   student: {
-    activeClass: 'bg-blue-600 text-white shadow-xs',
+    activeClass: 'bg-blue-50 text-blue-800 font-bold',
+    barClass: 'bg-blue-600',
     badgeBgClass: 'bg-blue-600',
   },
   alumni: {
-    activeClass: 'bg-emerald-700 text-white shadow-xs',
+    activeClass: 'bg-emerald-50 text-emerald-800 font-bold',
+    barClass: 'bg-emerald-600',
     badgeBgClass: 'bg-emerald-600',
   },
   admin: {
-    activeClass: 'bg-orange-600 text-white shadow-xs',
+    activeClass: 'bg-orange-50 text-orange-800 font-bold',
+    barClass: 'bg-orange-600',
     badgeBgClass: 'bg-orange-600',
   },
   superAdmin: {
-    activeClass: 'bg-purple-700 text-white shadow-xs',
+    activeClass: 'bg-purple-50 text-purple-800 font-bold',
+    barClass: 'bg-purple-700',
     badgeBgClass: 'bg-purple-700',
   },
 };
@@ -100,8 +106,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const unreadMessages = conversations.reduce((sum, c) => {
     const count =
-      typeof c.unreadCountByUid?.[activeUserId] === 'number'
-        ? c.unreadCountByUid[activeUserId]
+      typeof c.unreadCountMap?.[activeUserId] === 'number'
+        ? c.unreadCountMap[activeUserId]
         : typeof c.unreadCount === 'number'
         ? c.unreadCount
         : 0;
@@ -145,6 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: t.sidebar.servicesSection,
       items: [
         { to: '/student/admin-desk', label: t.sidebar.documentServices, icon: <FileText className="w-4 h-4" /> },
+        { to: '/verify-document', label: t.nav.verifyDoc, icon: <FileCheck2 className="w-4 h-4" /> },
       ],
     },
   ];
@@ -182,6 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: t.sidebar.servicesSection,
       items: [
         { to: '/alumni/admin-desk', label: t.sidebar.documentServices, icon: <FileText className="w-4 h-4" /> },
+        { to: '/verify-document', label: t.nav.verifyDoc, icon: <FileCheck2 className="w-4 h-4" /> },
       ],
     },
   ];
@@ -217,6 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: t.sidebar.servicesSection,
       items: [
         { to: '/admin/reports', label: t.sidebar.reportsStats, icon: <BarChart3 className="w-4 h-4" /> },
+        { to: '/verify-document', label: t.nav.verifyDoc, icon: <FileCheck2 className="w-4 h-4" /> },
       ],
     },
   ];
@@ -246,6 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { to: '/superadmin/activity', label: t.sidebar.activityOverview, icon: <Activity className="w-4 h-4" /> },
         { to: '/admin/reports', label: t.sidebar.systemStats, icon: <BarChart3 className="w-4 h-4" /> },
+        { to: '/verify-document', label: t.nav.verifyDoc, icon: <FileCheck2 className="w-4 h-4" /> },
       ],
     },
   ];
@@ -274,18 +284,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div className="flex flex-col justify-between h-full py-5 px-4">
       <div className="space-y-5">
         {userProfile?.isDemo && (
-          <div className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
+          <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-between gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
               {roleIcon}
               {t.nav.demoMode}
             </span>
-            <span className="text-[10px] font-medium text-amber-700">{t.sidebar.sandboxed}</span>
+            <span className="text-xs font-medium text-amber-700">{t.sidebar.sandboxed}</span>
           </div>
         )}
 
         {currentGroups.map((group) => (
           <div key={group.section} className="space-y-1">
-            <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <p className="px-3 text-xs font-bold uppercase tracking-wider text-slate-400">
               {group.section}
             </p>
             <nav className="space-y-0.5">
@@ -295,23 +305,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   to={item.to}
                   onClick={() => onCloseMobile?.()}
                   className={({ isActive }) =>
-                    `flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    `relative flex items-center justify-between pl-4 pr-3 py-2.5 rounded-lg text-[13px] transition-colors duration-150 ${
                       isActive
                         ? theme.activeClass
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                        : 'text-slate-600 font-medium hover:text-[#0F2A4A] hover:bg-slate-50'
                     }`
                   }
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="shrink-0">{item.icon}</span>
-                    <span className="truncate">{item.label}</span>
-                  </div>
-                  {item.badge !== undefined && (
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0 ${theme.badgeBgClass}`}
-                    >
-                      {item.badge}
-                    </span>
+                  {({ isActive }) => (
+                    <>
+                      {isActive && (
+                        <span
+                          className={`absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full ${theme.barClass}`}
+                          aria-hidden="true"
+                        />
+                      )}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="shrink-0">{item.icon}</span>
+                        <span className="truncate">{item.label}</span>
+                      </div>
+                      {item.badge !== undefined && (
+                        <span
+                          className={`text-xs font-bold px-2 py-0.5 rounded-full text-white shrink-0 tabular-nums ${theme.badgeBgClass}`}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </>
                   )}
                 </NavLink>
               ))}
@@ -320,11 +340,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </div>
 
-      <div className="pt-4 border-t border-slate-100">
+      <div className="pt-4 mt-4 border-t border-slate-100">
         <button
           type="button"
           onClick={() => void handleSidebarLogout()}
-          className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors cursor-pointer"
+          className="w-full flex items-center justify-center gap-2 px-3.5 min-h-[40px] rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors cursor-pointer"
         >
           <LogOut className="w-4 h-4" />
           <span>{t.nav.logout}</span>
@@ -336,7 +356,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Desktop persistent sidebar */}
-      <aside className="w-64 shrink-0 bg-white border-r border-slate-200 min-h-[calc(100vh-4rem)] hidden lg:block">
+      <aside className="w-[260px] shrink-0 bg-white border-r border-slate-200 min-h-[calc(100vh-4rem)] hidden lg:block">
         {sidebarContent}
       </aside>
 
@@ -347,15 +367,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
             onClick={() => onCloseMobile?.()}
           />
-          <aside className="relative w-72 max-w-[85vw] bg-white h-full shadow-2xl border-r border-slate-200 overflow-y-auto z-50">
+          <aside className="relative w-[260px] max-w-[85vw] bg-white h-full shadow-2xl border-r border-slate-200 overflow-y-auto z-50">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-[#0F2A4A]">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#0F2A4A]">
                 {t.roles[activeRole]}
               </span>
               <button
                 type="button"
                 onClick={() => onCloseMobile?.()}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
                 aria-label="Close navigation menu"
               >
                 <X className="w-4 h-4" />

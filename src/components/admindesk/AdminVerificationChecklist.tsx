@@ -37,7 +37,7 @@ export const AdminVerificationChecklist: React.FC<AdminVerificationChecklistProp
       <div className="space-y-2.5">
         {[
           { key: 'baustIdMatches' as const, label: 'BAUST Student ID matches registrar master enrollment records', sub: `Matched with ${request.baustId} (${request.department}, ${request.batch})` },
-          { key: 'academicRecordFound' as const, label: 'Graduation CGPA and convocation ledger verified', sub: `Recorded CGPA ${request.cgpa.toFixed(2)} in Exam Database` },
+          { key: 'academicRecordFound' as const, label: 'Graduation CGPA and convocation ledger verified', sub: `Recorded CGPA ${typeof request.cgpa === 'number' ? request.cgpa.toFixed(2) : 'N/A'} in Exam Database` },
           { key: 'paymentVerified' as const, label: 'Accounts Office payment receipt & transaction verified', sub: `${request.payment.method} TXN: ${request.payment.transactionId} (BDT ${request.payment.totalAmount})` },
           { key: 'documentsValid' as const, label: 'All uploaded clearance and supporting files authenticated', sub: `${request.uploadedDocuments.length} document(s) attached` }
         ].map((item) => {

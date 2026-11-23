@@ -22,13 +22,17 @@ export const AppLayout: React.FC = () => {
     setMobileDrawerOpen(false);
   }, [location.pathname]);
 
-  const isPublicPage =
-    location.pathname === '/' ||
+  const isLandingPage = location.pathname === '/';
+  const isAuthHeroPage =
     location.pathname === '/login' ||
     location.pathname.endsWith('/login') ||
     location.pathname === '/register' ||
     location.pathname.startsWith('/register/') ||
-    location.pathname.endsWith('/register') ||
+    location.pathname.endsWith('/register');
+
+  const isPublicPage =
+    isLandingPage ||
+    isAuthHeroPage ||
     location.pathname === '/approval-status' ||
     location.pathname === '/404';
 
@@ -42,6 +46,7 @@ export const AppLayout: React.FC = () => {
     location.pathname.startsWith('/alumni/messages');
 
   const showSidebar = !isPublicPage && isApprovedSession;
+  const isFullBleed = isLandingPage || isAuthHeroPage || isChatPage;
 
   return (
     <div
@@ -53,9 +58,11 @@ export const AppLayout: React.FC = () => {
         showSidebarToggle={showSidebar}
         isSidebarOpen={mobileDrawerOpen}
         onToggleSidebar={() => setMobileDrawerOpen((o) => !o)}
+        heroOverlay={isLandingPage || isAuthHeroPage}
+        isLandingPage={isLandingPage}
       />
 
-      <div className="flex-1 flex w-full min-w-0">
+      <div className="flex-1 flex w-full min-w-0 relative">
         {showSidebar && (
           <Sidebar
             mobileOpen={mobileDrawerOpen}
@@ -63,8 +70,8 @@ export const AppLayout: React.FC = () => {
           />
         )}
 
-        <main className={`flex-1 flex flex-col min-w-0 ${isChatPage ? 'p-0' : 'p-4 sm:p-6 lg:p-8'}`}>
-          <div className={`w-full mx-auto flex-1 flex flex-col min-w-0 ${isChatPage ? 'max-w-none' : 'max-w-7xl'}`}>
+        <main className={`flex-1 flex flex-col min-w-0 ${isFullBleed ? 'p-0' : 'p-4 sm:p-6 lg:p-8'}`}>
+          <div className={`w-full mx-auto flex-1 flex flex-col min-w-0 ${isFullBleed ? 'max-w-none' : 'max-w-7xl'}`}>
             <Outlet />
           </div>
         </main>

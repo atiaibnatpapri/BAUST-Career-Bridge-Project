@@ -16,6 +16,7 @@
         "office": { "type": "string", "maxLength": 100 },
         "employeeId": { "type": "string", "maxLength": 40 },
         "avatar": { "type": "string" },
+        "photoURL": { "type": "string" },
         "phone": { "type": "string", "maxLength": 30 },
         "bio": { "type": "string", "maxLength": 1000 },
         "isVerified": { "type": "boolean" },
@@ -39,6 +40,10 @@
         "careerGoal": { "type": "string" },
         "interests": { "type": "array" },
         "cvFileName": { "type": "string" },
+        "cvName": { "type": "string" },
+        "cvUrl": { "type": "string" },
+        "cvFileDocId": { "type": "string" },
+        "cvUpdatedAt": { "type": "string" },
         "designation": { "type": "string" },
         "company": { "type": "string" },
         "sector": { "type": "string" },
@@ -117,14 +122,38 @@
         "postedById": { "type": "string" },
         "postedByName": { "type": "string" },
         "postedByRole": { "type": "string" },
+        "applicantRole": { "type": "string" },
+        "cvUrl": { "type": "string" },
+        "cvFileDocId": { "type": "string" },
+        "cvName": { "type": "string" },
+        "interviewDate": { "type": "string" },
+        "interviewTime": { "type": "string" },
+        "interviewMode": { "type": "string" },
+        "interviewLink": { "type": "string" },
         "status": {
           "type": "string",
-          "enum": ["Applied", "Under Review", "Shortlisted", "Interview", "On Hold", "Accepted", "Rejected", "Withdrawn", "Job Removed"]
+          "enum": ["Applied", "Under Review", "Shortlisted", "Call for Interview", "Interview", "Offered", "On Hold", "Accepted", "Rejected", "Withdrawn", "Job Removed"]
         },
         "statusHistory": { "type": "array" },
         "isDemo": { "type": "boolean" }
       },
       "required": ["jobId", "studentId", "status"]
+    },
+    "UserFile": {
+      "title": "UserFile",
+      "description": "Uploaded PDF CV fallback document stored in Firestore when direct Cloud Storage is unavailable",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "kind": { "type": "string" },
+        "fileName": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "sizeBytes": { "type": "number" },
+        "base64DataUrl": { "type": "string" },
+        "sharedWith": { "type": "array" }
+      },
+      "required": ["id", "ownerId", "fileName", "base64DataUrl"]
     },
     "Mentorship": {
       "title": "Mentorship",
@@ -237,7 +266,10 @@
         "category": { "type": "string" },
         "targetAudience": { "type": "string" },
         "content": { "type": "string" },
-        "authorId": { "type": "string" }
+        "authorId": { "type": "string" },
+        "priority": { "type": "string", "enum": ["Normal", "Important"] },
+        "expiresAt": { "type": "string" },
+        "active": { "type": "boolean" }
       },
       "required": ["title", "content"]
     },
@@ -388,6 +420,10 @@
     "/activityLogs/{logId}": {
       "schema": { "$ref": "#/entities/ActivityLog" },
       "description": "System audit log readable by Super Admin"
+    },
+    "/userFiles/{fileId}": {
+      "schema": { "$ref": "#/entities/UserFile" },
+      "description": "Stored PDF CV fallback files shared between owner, recruiters, and admins"
     }
   }
 }

@@ -18,16 +18,19 @@ import { Badge, BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Loader } from '../../components/ui/Loader';
 import { Modal } from '../../components/ui/Modal';
-import { ClipboardList, Briefcase, Calendar, AlertCircle, Eye } from 'lucide-react';
+import { FilePreviewModal } from '../../components/ui/FilePreviewModal';
+import { ClipboardList, Briefcase, Calendar, AlertCircle, Eye, FileText } from 'lucide-react';
 
 function getAppBadgeVariant(status: JobApplication['status']): BadgeVariant {
   switch (status) {
     case 'Accepted':
+    case 'Offered':
       return 'approved';
     case 'Rejected':
     case 'Job Removed':
       return 'rejected';
     case 'Shortlisted':
+    case 'Call for Interview':
     case 'Interview':
     case 'Under Review':
       return 'in-progress';
@@ -50,6 +53,7 @@ export const StudentApplicationsPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedApp, setSelectedApp] = useState<JobApplication | null>(null);
   const [selectedMentorship, setSelectedMentorship] = useState<MentorshipRequest | null>(null);
+  const [cvPreviewApp, setCvPreviewApp] = useState<JobApplication | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -89,10 +93,12 @@ export const StudentApplicationsPage: React.FC = () => {
     try {
       const actorName = userProfile?.name || app.studentName || 'Student';
       await updateApplicationStatusFirestore(app.id, 'Withdrawn', actorName, 'Withdrawn by student');
-      const ownerId = app.postedBy || app.postedById;
+      const isAdminPosting = app.postedByRole === 'admin' || app.postedByRole === 'superAdmin';
+      const ownerId = isAdminPosting ? 'ALL_ADMINS' : app.postedBy || app.postedById;
       if (ownerId && ownerId !== firebaseUser.uid) {
-        const destLink =
-          app.postedByRole === 'admin' ? `/admin/jobs?app=${app.id}` : `/alumni/jobs?app=${app.id}`;
+        const destLink = isAdminPosting
+          ? `/admin/jobs/applications/${app.id}`
+          : `/alumni/jobs?app=${app.id}`;
         void notify(
           ownerId,
           'job',
@@ -174,12 +180,27 @@ export const StudentApplicationsPage: React.FC = () => {
                   <div>
                     <p className="text-sm font-bold text-slate-900">{app.jobTitle}</p>
                     <p className="text-xs text-slate-500">
-                      {app.company} · CV: <span className="font-mono">{app.cvFileName}</span> · Applied{' '}
+                      {app.company} · CV: <span className="font-mono">{app.cvName || app.cvFileName}</span> · Applied{' '}
                       {app.createdAtLabel || 'Recently'}
                     </p>
+                    {app.interviewDate && (
+                      <p className="text-[11px] font-semibold text-blue-700 mt-0.5">
+                        Interview: {app.interviewDate} {app.interviewTime ? `at ${app.interviewTime}` : ''} ({app.interviewMode || 'Interview'})
+                      </p>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 self-end sm:self-center">
+                  <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
                     <Badge variant={getAppBadgeVariant(app.status)}>{app.status}</Badge>
+                    {(app.cvUrl || app.cvFileDocId) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCvPreviewApp(app)}
+                      >
+                        <FileText className="w-3.5 h-3.5 mr-1" />
+                        View CV
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -280,10 +301,34 @@ export const StudentApplicationsPage: React.FC = () => {
                 <span className="font-semibold text-slate-500">Current Status</span>
                 <Badge variant={getAppBadgeVariant(selectedApp.status)}>{selectedApp.status}</Badge>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="font-semibold text-slate-500">Attached CV</span>
-                <span className="font-mono text-slate-800">{selectedApp.cvFileName}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-slate-800">{selectedApp.cvName || selectedApp.cvFileName}</span>
+                  {(selectedApp.cvUrl || selectedApp.cvFileDocId) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCvPreviewApp(selectedApp)}
+                    >
+                      View CV
+                    </Button>
+                  )}
+                </div>
               </div>
+              {selectedApp.interviewDate && (
+                <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 space-y-1">
+                  <p className="font-bold">Interview Scheduled</p>
+                  <p>
+                    Date & Time: {selectedApp.interviewDate} {selectedApp.interviewTime ? `· ${selectedApp.interviewTime}` : ''}
+                  </p>
+                  {selectedApp.interviewMode && <p>Mode: {selectedApp.interviewMode}</p>}
+                  {selectedApp.interviewLink && (
+                    <p className="font-mono break-all">Venue / Link: {selectedApp.interviewLink}</p>
+                  )}
+                </div>
+              )}
               {selectedApp.postedByName && (
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-slate-500">Hiring Contact</span>
@@ -427,6 +472,15 @@ export const StudentApplicationsPage: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      <FilePreviewModal
+        isOpen={Boolean(cvPreviewApp)}
+        onClose={() => setCvPreviewApp(null)}
+        title={`Attached CV — ${cvPreviewApp?.jobTitle || ''}`}
+        fileName={cvPreviewApp?.cvName || cvPreviewApp?.cvFileName || 'CV.pdf'}
+        url={cvPreviewApp?.cvUrl}
+        fileDocId={cvPreviewApp?.cvFileDocId}
+      />
     </div>
   );
 };

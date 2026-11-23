@@ -162,7 +162,7 @@ export const StudentDashboard: React.FC = () => {
         ))}
 
       {/* Welcome Banner (Student Blue Accent) */}
-      <div className="bg-gradient-to-r from-[#0F2A4A] via-[#1D4ED8] to-[#1E40AF] rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-md">
+      <div className="bg-gradient-to-r from-[#0F2A4A] via-[#1D4ED8] to-[#1E40AF] rounded-2xl p-6 sm:p-8 text-white relative overflow-hidden shadow-md">
         <div className="relative z-10 max-w-2xl space-y-3">
           <div className="inline-flex flex-wrap items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-xs font-semibold backdrop-blur-xs">
             <span className="w-2 h-2 rounded-full bg-blue-300" />
@@ -170,7 +170,7 @@ export const StudentDashboard: React.FC = () => {
               {t.sidebar.studentPortal} · {studentName} ({studentDept}{' '}
               {student?.batch || userProfile?.batch || 'BAUST'})
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-white/20 text-[10px] font-bold">
+            <span className="px-2 py-0.5 rounded-full bg-white/20 text-xs font-bold">
               {academicStanding.levelTerm}
             </span>
           </div>
@@ -193,7 +193,7 @@ export const StudentDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<ClipboardList className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.applicationTracker}
@@ -203,7 +203,7 @@ export const StudentDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<Video className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.sessionsWebinars}
@@ -213,7 +213,7 @@ export const StudentDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<Calendar className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.appointments}
@@ -223,7 +223,7 @@ export const StudentDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<FileText className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.cvReview}
@@ -233,7 +233,7 @@ export const StudentDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.directory}
@@ -249,13 +249,13 @@ export const StudentDashboard: React.FC = () => {
           <Card className="p-4 border-slate-200 hover:border-[#0F2A4A]/40 transition-colors h-full">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                   {t.dashboard.activeRequests}
                 </p>
                 <p className="text-2xl font-black text-amber-700 tabular-nums mt-0.5">
                   {formatLocalizedNumber(activeMentorshipCount, language)}
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
                   {formatLocalizedNumber(upcomingSessions.length, language)} scheduled
                 </p>
               </div>
@@ -270,13 +270,13 @@ export const StudentDashboard: React.FC = () => {
           <Card className="p-4 border-slate-200 hover:border-[#0F2A4A]/40 transition-colors h-full">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                   {t.dashboard.jobApplications}
                 </p>
                 <p className="text-2xl font-black text-[#0F2A4A] tabular-nums mt-0.5">
                   {formatLocalizedNumber(applications.length, language)}
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
                   {formatLocalizedNumber(
                     applications.filter((a) => !['Rejected', 'Withdrawn', 'Job Removed'].includes(a.status)).length,
                     language
@@ -295,13 +295,13 @@ export const StudentDashboard: React.FC = () => {
           <Card className="p-4 border-slate-200 hover:border-[#0F2A4A]/40 transition-colors h-full">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                   {t.dashboard.documentRequests}
                 </p>
                 <p className="text-2xl font-black text-emerald-700 tabular-nums mt-0.5">
                   {formatLocalizedNumber(docRequests.length, language)}
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
                   {formatLocalizedNumber(activeDocRequestsCount, language)} in progress
                 </p>
               </div>
@@ -312,17 +312,17 @@ export const StudentDashboard: React.FC = () => {
           </Card>
         </Link>
 
-        <Link to="/chat" className="block">
+        <Link to="/student/messages" className="block">
           <Card className="p-4 border-slate-200 hover:border-[#0F2A4A]/40 transition-colors h-full">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                   {t.dashboard.unreadMessages}
                 </p>
                 <p className="text-2xl font-black text-sky-700 tabular-nums mt-0.5">
                   {formatLocalizedNumber(unreadMessagesCount, language)}
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
                   {formatLocalizedNumber(safeConversations.length, language)} active threads
                 </p>
               </div>
@@ -381,7 +381,7 @@ export const StudentDashboard: React.FC = () => {
                             <span className="text-xs font-bold text-slate-900">
                               {session.alumniName ?? 'BAUST Mentor'}
                             </span>
-                            <span className="text-[11px] text-slate-500">
+                            <span className="text-xs text-slate-500">
                               ({session.alumniCompany ?? 'BAUST Alumni'})
                             </span>
                             <Badge variant="approved" size="sm">
@@ -450,12 +450,12 @@ export const StudentDashboard: React.FC = () => {
                       <Badge variant="navy" size="sm">
                         {res.category ?? 'Resource'}
                       </Badge>
-                      <span className="text-[11px] text-slate-400 font-mono">
+                      <span className="text-xs text-slate-500 font-mono">
                         {res.format ?? 'Guide'}
                       </span>
                     </div>
-                    <h4 className="text-xs font-bold text-slate-900 leading-snug">{res.title}</h4>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">{res.desc}</p>
+                    <h4 className="text-sm font-bold text-slate-900 leading-snug">{res.title}</h4>
+                    <p className="text-xs text-slate-600 leading-relaxed">{res.desc}</p>
                     <div className="pt-1">
                       <button
                         type="button"
@@ -502,7 +502,7 @@ export const StudentDashboard: React.FC = () => {
               <Card className="p-6 text-center space-y-2 border-dashed border-slate-300">
                 <Users className="w-7 h-7 text-slate-400 mx-auto" />
                 <p className="text-xs font-semibold text-slate-700">No data yet</p>
-                <p className="text-[11px] text-slate-500">
+                <p className="text-xs text-slate-500">
                   No department alumni recommendations available right now.
                 </p>
               </Card>
@@ -520,19 +520,19 @@ export const StudentDashboard: React.FC = () => {
                           isVerified={alumni.isVerified}
                         />
                         <div className="min-w-0 flex-1">
-                          <h4 className="text-xs font-bold text-slate-900 truncate">
+                          <h4 className="text-sm font-bold text-slate-900 truncate" title={alumni.name ?? 'BAUST Alumni'}>
                             {alumni.name ?? 'BAUST Alumni'}
                           </h4>
-                          <p className="text-[11px] font-semibold text-[#0F2A4A] truncate">
+                          <p className="text-xs font-semibold text-[#0F2A4A] truncate" title={alumni.designation || 'Alumni Mentor'}>
                             {alumni.designation || 'Alumni Mentor'}
                           </p>
-                          <p className="text-[11px] text-slate-500 truncate">
+                          <p className="text-xs text-slate-500 truncate" title={alumni.company || 'BAUST Network'}>
                             {alumni.company || 'BAUST Network'}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
                         <span>{alumni.batch || 'Alumni'}</span>
                         <Badge variant={alumni.sector === 'Government' ? 'army' : 'navy'} size="sm">
                           {alumni.sector || 'Private'}
@@ -560,33 +560,57 @@ export const StudentDashboard: React.FC = () => {
 
           {/* Announcements Widget */}
           <div className="space-y-4">
-            <h3 className="text-base font-bold text-[#0F2A4A]">University Career Notices</h3>
-            {safeAnnouncements.length === 0 ? (
-              <Card className="p-6 text-center space-y-1 border-dashed border-slate-300">
-                <p className="text-xs font-semibold text-slate-700">No data yet</p>
-                <p className="text-[11px] text-slate-500">No university career notices posted yet.</p>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {(safeAnnouncements ?? []).slice(0, 2).map((notice) => {
-                  if (!notice) return null;
-                  return (
-                    <Card key={notice.id} className="p-4 space-y-2 border-slate-200 bg-slate-50/50">
-                      <div className="flex items-center justify-between">
-                        <Badge variant="army" size="sm">
-                          {notice.category ?? 'Notice'}
-                        </Badge>
-                        <span className="text-[10px] text-slate-400">{notice.date ?? ''}</span>
-                      </div>
-                      <h4 className="text-xs font-bold text-slate-900">{notice.title ?? 'Announcement'}</h4>
-                      <p className="text-[11px] text-slate-600 line-clamp-3 leading-relaxed">
-                        {notice.content ?? ''}
-                      </p>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-[#0F2A4A]">University Career Notices</h3>
+              <Link to="/student/notices" className="text-xs font-bold text-[#0F2A4A] hover:underline">
+                View all
+              </Link>
+            </div>
+            {(() => {
+              const todayIso = new Date().toISOString().split('T')[0];
+              const visibleNotices = safeAnnouncements.filter(
+                (n) =>
+                  Boolean(n) &&
+                  n.active !== false &&
+                  (!n.expiresAt || n.expiresAt >= todayIso) &&
+                  (n.targetAudience === 'All' || n.targetAudience === 'Students')
+              );
+              if (visibleNotices.length === 0) {
+                return (
+                  <Card className="p-6 text-center space-y-1 border-dashed border-slate-300">
+                    <p className="text-xs font-semibold text-slate-700">No active notices</p>
+                    <p className="text-xs text-slate-500">No active university career notices right now.</p>
+                  </Card>
+                );
+              }
+              return (
+                <div className="space-y-3">
+                  {visibleNotices.slice(0, 3).map((notice) => (
+                    <Link key={notice.id} to={`/student/notices/${notice.id}`} className="block">
+                      <Card hoverable className="p-4 space-y-2 border-slate-200 bg-slate-50/50">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant="army" size="sm">
+                              {notice.category ?? 'Notice'}
+                            </Badge>
+                            {(notice.priority === 'Important' || notice.pinned) && (
+                              <Badge variant="pending" size="sm">
+                                Important
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="text-xs text-slate-500 tabular-nums">{notice.date ?? ''}</span>
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-900">{notice.title ?? 'Announcement'}</h4>
+                        <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed">
+                          {notice.content ?? ''}
+                        </p>
+                      </Card>
+                    </Link>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

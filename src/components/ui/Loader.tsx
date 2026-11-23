@@ -30,7 +30,7 @@ export const Loader: React.FC<LoaderProps> = ({
         </div>
       </div>
       <p className="text-xs font-bold text-[#0F2A4A] tracking-wide">{label}</p>
-      <p className="text-[11px] text-slate-400 mt-1">
+      <p className="text-xs text-slate-500 mt-1">
         Synchronizing university portal data...
       </p>
     </div>

@@ -153,6 +153,14 @@ const AdminRequestDetailPage = lazy(() =>
     default: m.AdminRequestDetailPage,
   }))
 );
+const AdminProfilePage = lazy(() =>
+  import('../pages/admin/AdminProfilePage').then((m) => ({ default: m.AdminProfilePage }))
+);
+const AdminJobApplicationDetailPage = lazy(() =>
+  import('../pages/admin/AdminJobApplicationDetailPage').then((m) => ({
+    default: m.AdminJobApplicationDetailPage,
+  }))
+);
 
 // Lazy-loaded Super Admin Pages (Exclusive Approvals + Governance)
 const SuperAdminDashboard = lazy(() =>
@@ -211,6 +219,9 @@ const ModerationReportsPage = lazy(() =>
   import('../pages/admin/ModerationReportsPage').then((m) => ({
     default: m.ModerationReportsPage,
   }))
+);
+const NoticesPage = lazy(() =>
+  import('../pages/shared/NoticesPage').then((m) => ({ default: m.NoticesPage }))
 );
 
 interface ProtectedRouteProps {
@@ -481,6 +492,43 @@ export const AppRoutes: React.FC = () => {
           )}
         />
         <Route
+          path="/student/messages"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['student']} loginRedirect="/student/login">
+              <ChatPage />
+            </ProtectedRoute>,
+            'Loading messages...',
+            'Direct Messages'
+          )}
+        />
+        <Route
+          path="/student/messages/:conversationId"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['student']} loginRedirect="/student/login">
+              <ChatPage />
+            </ProtectedRoute>,
+            'Loading conversation...',
+            'Direct Messages'
+          )}
+        />
+        <Route path="/student/chat" element={<Navigate to="/student/messages" replace />} />
+        <Route
+          path="/student/notices"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['student']} loginRedirect="/student/login">
+              <NoticesPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/student/notices/:id"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['student']} loginRedirect="/student/login">
+              <NoticesPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/student/services"
           element={withSuspense(
             <ProtectedRoute allowedRoles={['student']} loginRedirect="/student/login">
@@ -692,6 +740,44 @@ export const AppRoutes: React.FC = () => {
           )}
         />
         <Route
+          path="/alumni/messages"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['alumni']} loginRedirect="/alumni/login">
+              <ChatPage />
+            </ProtectedRoute>,
+            'Loading messages...',
+            'Direct Messages'
+          )}
+        />
+        <Route
+          path="/alumni/messages/:conversationId"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['alumni']} loginRedirect="/alumni/login">
+              <ChatPage />
+            </ProtectedRoute>,
+            'Loading conversation...',
+            'Direct Messages'
+          )}
+        />
+        <Route path="/alumni/chat" element={<Navigate to="/alumni/messages" replace />} />
+        <Route path="/alumni/direct-messages" element={<Navigate to="/alumni/messages" replace />} />
+        <Route
+          path="/alumni/notices"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['alumni']} loginRedirect="/alumni/login">
+              <NoticesPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/alumni/notices/:id"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['alumni']} loginRedirect="/alumni/login">
+              <NoticesPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/alumni/services"
           element={withSuspense(
             <ProtectedRoute allowedRoles={['alumni']} loginRedirect="/alumni/login">
@@ -783,10 +869,26 @@ export const AppRoutes: React.FC = () => {
           )}
         />
         <Route
+          path="/admin/profile"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['admin', 'superAdmin']} loginRedirect="/admin/login">
+              <AdminProfilePage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/admin/jobs"
           element={withSuspense(
             <ProtectedRoute allowedRoles={['admin']} loginRedirect="/admin/login">
               <AdminJobsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/admin/jobs/applications/:applicationId"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['admin', 'superAdmin']} loginRedirect="/admin/login">
+              <AdminJobApplicationDetailPage />
             </ProtectedRoute>
           )}
         />
@@ -925,8 +1027,32 @@ export const AppRoutes: React.FC = () => {
             'User Reports & Moderation'
           )}
         />
+        <Route
+          path="/superadmin/profile"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['superAdmin']} loginRedirect="/superadmin/login">
+              <AdminProfilePage />
+            </ProtectedRoute>
+          )}
+        />
 
         {/* Shared Authenticated Workspaces */}
+        <Route
+          path="/notices"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['student', 'alumni', 'admin', 'superAdmin']} loginRedirect="/login">
+              <NoticesPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/notices/:id"
+          element={withSuspense(
+            <ProtectedRoute allowedRoles={['student', 'alumni', 'admin', 'superAdmin']} loginRedirect="/login">
+              <NoticesPage />
+            </ProtectedRoute>
+          )}
+        />
         <Route
           path="/chat"
           element={withSuspense(

@@ -57,22 +57,22 @@ export const Modal: React.FC<ModalProps> = ({
         aria-hidden="true"
       />
 
-      <div className="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+      <div className="flex min-h-full items-center justify-center p-4 text-center">
         <div
-          className={`relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all w-full my-8 ${maxWidthClasses[maxWidth]}`}
+          className={`relative flex flex-col max-h-[90vh] transform overflow-hidden rounded-2xl bg-white border border-slate-200 text-left shadow-2xl transition-all duration-150 w-full ${maxWidthClasses[maxWidth]}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
           {(title || description) && (
-            <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4.5">
+            <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4 shrink-0">
               <div>
-                {title && <h3 className="text-lg font-bold text-[#0F2A4A]">{title}</h3>}
+                {title && <h3 className="text-lg font-semibold text-[#0F2A4A]">{title}</h3>}
                 {description && <p className="text-xs text-slate-500 mt-0.5">{description}</p>}
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                className="rounded-lg p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
                 <span className="sr-only">Close</span>
@@ -81,7 +81,7 @@ export const Modal: React.FC<ModalProps> = ({
           )}
 
           {/* Content */}
-          <div className="px-6 py-5 max-h-[75vh] overflow-y-auto">{children}</div>
+          <div className="px-6 py-5 flex-1 overflow-y-auto">{children}</div>
         </div>
       </div>
     </div>

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
@@ -15,10 +15,67 @@ import {
   bookAppointmentSlotTransaction,
   cancelAppointmentBooking,
   completeAppointmentSlot,
+  deleteAppointmentSlot,
   publishAppointmentSlot,
   subscribeAppointmentSlots,
+  updateAppointmentSlot,
 } from '../../services/careerBridgeService';
-import { CalendarClock, Plus, CheckCircle2, XCircle, ExternalLink, Clock } from 'lucide-react';
+import {
+  CalendarClock,
+  Plus,
+  CheckCircle2,
+  XCircle,
+  ExternalLink,
+  Clock,
+  Pencil,
+  Trash2,
+  AlertCircle,
+  Filter,
+} from 'lucide-react';
+
+function todayIsoDate(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+function formatTime24To12(hhmm: string): string {
+  const [hStr, mStr] = (hhmm || '').split(':');
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function parseTime12To24(label: string): string {
+  const match = (label || '').trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return '';
+  let h = Number(match[1]);
+  const m = Number(match[2]);
+  const p = match[3].toUpperCase();
+  if (p === 'PM' && h < 12) h += 12;
+  if (p === 'AM' && h === 12) h = 0;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function toMinutes(hhmm: string): number {
+  const [h, m] = (hhmm || '').split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return -1;
+  return h * 60 + m;
+}
+
+function extractSlotStartEnd(slot: AppointmentSlotEntity): { start: string; end: string } {
+  if (slot.startTime && slot.endTime) {
+    return { start: slot.startTime, end: slot.endTime };
+  }
+  const parts = (slot.timeSlot || '').split('-').map((s) => s.trim());
+  if (parts.length === 2) {
+    const start = parseTime12To24(parts[0]);
+    const end = parseTime12To24(parts[1]);
+    if (start && end) return { start, end };
+  }
+  return { start: '', end: '' };
+}
 
 export const AppointmentsPage: React.FC = () => {
   const { addToast, language } = useApp();
@@ -28,13 +85,22 @@ export const AppointmentsPage: React.FC = () => {
 
   const [slots, setSlots] = useState<AppointmentSlotEntity[]>([]);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [slotModalOpen, setSlotModalOpen] = useState(false);
+  const [editingSlot, setEditingSlot] = useState<AppointmentSlotEntity | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AppointmentSlotEntity | null>(null);
   const [bookTarget, setBookTarget] = useState<AppointmentSlotEntity | null>(null);
   const [bookingNote, setBookingNote] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const [date, setDate] = useState('2026-12-22');
-  const [timeSlot, setTimeSlot] = useState('08:00 PM - 08:30 PM');
+  // Student filters
+  const [alumniFilter, setAlumniFilter] = useState<string>('All');
+  const [dateFilter, setDateFilter] = useState<string>('');
+
+  // Slot create/edit form fields
+  const [date, setDate] = useState<string>(() => todayIsoDate());
+  const [startTime, setStartTime] = useState<string>('20:00');
+  const [endTime, setEndTime] = useState<string>('20:30');
   const [mode, setMode] = useState<'Google Meet' | 'On-Campus' | 'Phone'>('Google Meet');
   const [topic, setTopic] = useState('1-on-1 Career & CV Guidance');
   const [meetingLink, setMeetingLink] = useState('');
@@ -51,28 +117,133 @@ export const AppointmentsPage: React.FC = () => {
     );
   }, []);
 
-  const handlePublishSlot = async (e: React.FormEvent) => {
+  const openCreateModal = () => {
+    setEditingSlot(null);
+    setDate(todayIsoDate());
+    setStartTime('20:00');
+    setEndTime('20:30');
+    setMode('Google Meet');
+    setTopic('1-on-1 Career & CV Guidance');
+    setMeetingLink('');
+    setFormError(null);
+    setSlotModalOpen(true);
+  };
+
+  const openEditModal = (slot: AppointmentSlotEntity) => {
+    const times = extractSlotStartEnd(slot);
+    setEditingSlot(slot);
+    setDate(slot.date || todayIsoDate());
+    setStartTime(times.start || '20:00');
+    setEndTime(times.end || '20:30');
+    setMode(slot.mode);
+    setTopic(slot.topic || '1-on-1 Career & CV Guidance');
+    setMeetingLink(slot.meetingLink || '');
+    setFormError(null);
+    setSlotModalOpen(true);
+  };
+
+  const handleSaveSlot = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firebaseUser || !userProfile) return;
-    setBusyId('create');
+    setFormError(null);
+
+    const today = todayIsoDate();
+    if (!date || date < today) {
+      setFormError(isBn ? 'অতীতের তারিখ নির্বাচন করা যাবে না।' : 'Slot date cannot be in the past.');
+      return;
+    }
+
+    const startMin = toMinutes(startTime);
+    const endMin = toMinutes(endTime);
+    if (startMin < 0 || endMin < 0 || endMin <= startMin) {
+      setFormError(
+        isBn ? 'শেষের সময় শুরুর সময়ের পরে হতে হবে।' : 'End time must be strictly after start time.'
+      );
+      return;
+    }
+
+    if (!topic.trim()) {
+      setFormError(isBn ? 'অনুগ্রহ করে সেশনের বিষয় লিখুন।' : 'Please enter a session topic.');
+      return;
+    }
+
+    // Overlap check against other non-cancelled slots on the same date for this alumnus
+    const myDateSlots = slots.filter(
+      (s) =>
+        s.alumniId === firebaseUser.uid &&
+        s.date === date &&
+        s.status !== 'cancelled' &&
+        (!editingSlot || s.id !== editingSlot.id)
+    );
+    const hasOverlap = myDateSlots.some((existing) => {
+      const ext = extractSlotStartEnd(existing);
+      const exStart = toMinutes(ext.start);
+      const exEnd = toMinutes(ext.end);
+      if (exStart < 0 || exEnd < 0) return false;
+      return startMin < exEnd && endMin > exStart;
+    });
+    if (hasOverlap) {
+      setFormError(
+        isBn
+          ? 'এই তারিখে আপনার অন্য একটি স্লটের সাথে সময় মিলে যাচ্ছে।'
+          : 'This time window overlaps with another active slot on the same date.'
+      );
+      return;
+    }
+
+    const formattedRange = `${formatTime24To12(startTime)} - ${formatTime24To12(endTime)}`;
+    const busyKey = editingSlot ? editingSlot.id : 'create';
+    setBusyId(busyKey);
+
     try {
-      await publishAppointmentSlot({
-        alumniId: firebaseUser.uid,
-        alumniName: userProfile.name,
-        alumniCompany: userProfile.company || 'BAUST Alumni',
-        alumniAvatar: userProfile.avatar,
-        date,
-        timeSlot,
-        mode,
-        meetingLink: meetingLink.trim(),
-        topic: topic.trim(),
-        isDemo: Boolean(userProfile.isDemo),
-      });
-      addToast('success', isBn ? 'স্লট প্রকাশিত হয়েছে' : 'Slot Published', `${date} · ${timeSlot}`);
-      setCreateOpen(false);
+      if (editingSlot) {
+        await updateAppointmentSlot(editingSlot.id, {
+          date,
+          startTime,
+          endTime,
+          timeSlot: formattedRange,
+          mode,
+          meetingLink: meetingLink.trim(),
+          topic: topic.trim(),
+        });
+        addToast('success', isBn ? 'স্লট হালনাগাদ হয়েছে' : 'Slot Updated', `${date} · ${formattedRange}`);
+      } else {
+        await publishAppointmentSlot({
+          alumniId: firebaseUser.uid,
+          alumniName: userProfile.name,
+          alumniCompany: userProfile.company || 'BAUST Alumni',
+          alumniAvatar: userProfile.photoURL || userProfile.avatar,
+          date,
+          startTime,
+          endTime,
+          timeSlot: formattedRange,
+          mode,
+          meetingLink: meetingLink.trim(),
+          topic: topic.trim(),
+          isDemo: Boolean(userProfile.isDemo),
+        });
+        addToast('success', isBn ? 'স্লট প্রকাশিত হয়েছে' : 'Slot Published', `${date} · ${formattedRange}`);
+      }
+      setSlotModalOpen(false);
+      setEditingSlot(null);
       setMeetingLink('');
     } catch (err: any) {
-      addToast('error', isBn ? 'ত্রুটি' : 'Error', err?.message || 'Unable to publish slot.');
+      setFormError(err?.message || 'Unable to save slot.');
+      addToast('error', isBn ? 'ত্রুটি' : 'Error', err?.message || 'Unable to save slot.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setBusyId(deleteTarget.id);
+    try {
+      await deleteAppointmentSlot(deleteTarget.id);
+      addToast('info', isBn ? 'স্লট মুছে ফেলা হয়েছে' : 'Slot Deleted', `${deleteTarget.date} · ${deleteTarget.timeSlot}`);
+      setDeleteTarget(null);
+    } catch (err: any) {
+      addToast('error', isBn ? 'ত্রুটি' : 'Delete Failed', err?.message || 'Could not delete slot.');
     } finally {
       setBusyId(null);
     }
@@ -117,11 +288,40 @@ export const AppointmentsPage: React.FC = () => {
     }
   };
 
-  const visibleSlots = isAlumni
-    ? slots.filter((s) => s.alumniId === firebaseUser?.uid)
-    : slots.filter(
-        (s) => s.status === 'available' || s.bookedByStudentId === firebaseUser?.uid
-      );
+  const handleComplete = async (slot: AppointmentSlotEntity) => {
+    setBusyId(slot.id);
+    try {
+      await completeAppointmentSlot(slot);
+      addToast('success', isBn ? 'সেশন সম্পন্ন হয়েছে' : 'Session Completed', `${slot.bookedByStudentName || 'Mentee'} notified.`);
+    } catch (err: any) {
+      addToast('error', isBn ? 'ত্রুটি' : 'Error', err?.message || 'Could not mark session complete.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const alumniFilterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    slots.forEach((s) => {
+      if (s.alumniId && (s.status === 'available' || s.bookedByStudentId === firebaseUser?.uid)) {
+        map.set(s.alumniId, s.alumniName || 'BAUST Alumni');
+      }
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [slots, firebaseUser?.uid]);
+
+  const visibleSlots = useMemo(() => {
+    if (isAlumni) {
+      return slots.filter((s) => s.alumniId === firebaseUser?.uid);
+    }
+    return slots.filter((s) => {
+      const baseVisible = s.status === 'available' || s.bookedByStudentId === firebaseUser?.uid;
+      if (!baseVisible) return false;
+      if (alumniFilter !== 'All' && s.alumniId !== alumniFilter) return false;
+      if (dateFilter && s.date !== dateFilter) return false;
+      return true;
+    });
+  }, [slots, isAlumni, firebaseUser?.uid, alumniFilter, dateFilter]);
 
   return (
     <div className="space-y-6">
@@ -148,11 +348,55 @@ export const AppointmentsPage: React.FC = () => {
         </div>
 
         {isAlumni && (
-          <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setCreateOpen(true)}>
+          <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={openCreateModal}>
             {isBn ? 'নতুন স্লট যুক্ত করুন' : 'Publish Time Slot'}
           </Button>
         )}
       </div>
+
+      {/* Student Filters */}
+      {!isAlumni && (
+        <Card className="p-4 border-slate-200">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 shrink-0">
+              <Filter className="w-4 h-4 text-[#0F2A4A]" />
+              <span>{isBn ? 'ফিল্টার:' : 'Filter Slots:'}</span>
+            </div>
+            <select
+              value={alumniFilter}
+              onChange={(e) => setAlumniFilter(e.target.value)}
+              className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold bg-white text-slate-800"
+            >
+              <option value="All">{isBn ? 'সব অ্যালামনাই' : 'All Alumni Mentors'}</option>
+              {alumniFilterOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold bg-white text-slate-800"
+              aria-label="Filter by date"
+            />
+            {(alumniFilter !== 'All' || dateFilter) && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setAlumniFilter('All');
+                  setDateFilter('');
+                }}
+              >
+                {isBn ? 'রিসেট' : 'Reset'}
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
 
       {loading ? (
         <Card className="p-8 text-center text-xs text-slate-500">
@@ -170,6 +414,7 @@ export const AppointmentsPage: React.FC = () => {
           {visibleSlots.map((slot) => {
             const isMineStudent = Boolean(firebaseUser && slot.bookedByStudentId === firebaseUser.uid);
             const isMineAlumni = Boolean(firebaseUser && slot.alumniId === firebaseUser.uid);
+            const canEditOrDelete = isMineAlumni && (slot.status === 'available' || slot.status === 'cancelled');
 
             return (
               <Card key={slot.id} className="p-5 flex flex-col justify-between gap-4 border-slate-200">
@@ -226,7 +471,7 @@ export const AppointmentsPage: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
                   {!isAlumni && slot.status === 'available' && (
                     <Button
                       size="sm"
@@ -258,7 +503,8 @@ export const AppointmentsPage: React.FC = () => {
                         size="sm"
                         variant="primary"
                         className="flex-1"
-                        onClick={() => void completeAppointmentSlot(slot)}
+                        isLoading={busyId === slot.id}
+                        onClick={() => void handleComplete(slot)}
                       >
                         {isBn ? 'সম্পন্ন' : 'Complete'}
                       </Button>
@@ -273,16 +519,38 @@ export const AppointmentsPage: React.FC = () => {
                     </>
                   )}
 
-                  {isMineAlumni && slot.status === 'available' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full"
-                      isLoading={busyId === slot.id}
-                      onClick={() => void handleCancel(slot)}
-                    >
-                      {isBn ? 'স্লট বন্ধ করুন' : 'Close Slot'}
-                    </Button>
+                  {canEditOrDelete && (
+                    <>
+                      {slot.status === 'available' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          leftIcon={<Pencil className="w-3.5 h-3.5" />}
+                          onClick={() => openEditModal(slot)}
+                        >
+                          {isBn ? 'সম্পাদনা' : 'Edit'}
+                        </Button>
+                      )}
+                      {slot.status === 'available' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          isLoading={busyId === slot.id}
+                          onClick={() => void handleCancel(slot)}
+                        >
+                          {isBn ? 'বন্ধ করুন' : 'Close'}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+                        onClick={() => setDeleteTarget(slot)}
+                      >
+                        {isBn ? 'মুছুন' : 'Delete'}
+                      </Button>
+                    </>
                   )}
                 </div>
               </Card>
@@ -291,35 +559,71 @@ export const AppointmentsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Alumni Create Slot Modal */}
+      {/* Alumni Create / Edit Slot Modal */}
       <Modal
-        isOpen={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title={isBn ? 'নতুন অ্যাপয়েন্টমেন্ট স্লট যোগ করুন' : 'Publish Available Time Slot'}
+        isOpen={slotModalOpen}
+        onClose={() => {
+          setSlotModalOpen(false);
+          setEditingSlot(null);
+          setFormError(null);
+        }}
+        title={
+          editingSlot
+            ? isBn
+              ? 'স্লট সম্পাদনা করুন'
+              : 'Edit Appointment Slot'
+            : isBn
+            ? 'নতুন অ্যাপয়েন্টমেন্ট স্লট যোগ করুন'
+            : 'Publish Available Time Slot'
+        }
       >
-        <form onSubmit={handlePublishSlot} className="space-y-4">
+        <form onSubmit={handleSaveSlot} className="space-y-4">
+          {formError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{formError}</span>
+            </div>
+          )}
+
           <Input
             label={isBn ? 'সেশনের বিষয়' : 'Topic / Focus'}
             required
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
           />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Input
               label={isBn ? 'তারিখ' : 'Date'}
               type="date"
+              min={todayIsoDate()}
               required
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
             <Input
-              label={isBn ? 'সময় স্লট' : 'Time Window'}
+              label={isBn ? 'শুরুর সময়' : 'Start Time'}
+              type="time"
               required
-              placeholder="08:00 PM - 08:30 PM"
-              value={timeSlot}
-              onChange={(e) => setTimeSlot(e.target.value)}
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
+            <Input
+              label={isBn ? 'শেষের সময়' : 'End Time'}
+              type="time"
+              required
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
             />
           </div>
+
+          <p className="text-[11px] text-slate-500">
+            {isBn ? 'সময়সীমা:' : 'Preview:'}{' '}
+            <strong>
+              {date} · {formatTime24To12(startTime)} - {formatTime24To12(endTime)}
+            </strong>
+          </p>
+
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               {isBn ? 'মাধ্যম' : 'Session Mode'}
@@ -340,15 +644,64 @@ export const AppointmentsPage: React.FC = () => {
             onChange={(e) => setMeetingLink(e.target.value)}
             placeholder="Auto-generated if left blank"
           />
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setSlotModalOpen(false);
+                setEditingSlot(null);
+              }}
+            >
               {isBn ? 'বাতিল' : 'Cancel'}
             </Button>
-            <Button type="submit" variant="primary" isLoading={busyId === 'create'}>
-              {isBn ? 'প্রকাশ করুন' : 'Publish Slot'}
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={busyId === (editingSlot ? editingSlot.id : 'create')}
+            >
+              {editingSlot
+                ? isBn
+                  ? 'সংরক্ষণ করুন'
+                  : 'Save Changes'
+                : isBn
+                ? 'প্রকাশ করুন'
+                : 'Publish Slot'}
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Confirm Delete Slot Modal */}
+      <Modal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title={isBn ? 'স্লট মুছে ফেলুন' : 'Delete Appointment Slot'}
+        maxWidth="sm"
+      >
+        {deleteTarget && (
+          <div className="space-y-4">
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {isBn
+                ? `আপনি কি নিশ্চিতভাবে "${deleteTarget.date} (${deleteTarget.timeSlot})" স্লটটি স্থায়ীভাবে মুছে ফেলতে চান?`
+                : `Permanently delete the slot on ${deleteTarget.date} (${deleteTarget.timeSlot})? This cannot be undone.`}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
+                {isBn ? 'বাতিল' : 'Keep Slot'}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                isLoading={busyId === deleteTarget.id}
+                onClick={() => void handleConfirmDelete()}
+              >
+                {isBn ? 'হ্যাঁ, মুছুন' : 'Delete Slot'}
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Student Confirm Booking Modal */}

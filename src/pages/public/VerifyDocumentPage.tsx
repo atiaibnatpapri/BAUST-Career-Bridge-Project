@@ -15,12 +15,20 @@ import {
   Download
 } from 'lucide-react';
 import { useAdminDeskStore } from '../../hooks/useAdminDeskStore';
+import { useAuth } from '../../context/AuthContext';
+import { getDashboardPathForRole } from './ApprovalStatusPage';
 import { DigitalDocumentViewer } from '../../components/admindesk/DigitalDocumentViewer';
 
 export const VerifyDocumentPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { firebaseUser, userProfile } = useAuth();
   const { requests } = useAdminDeskStore();
+
+  const isApprovedUser = Boolean(
+    firebaseUser && userProfile && userProfile.verificationStatus === 'approved' && !userProfile.suspended
+  );
+  const returnPath = isApprovedUser && userProfile?.role ? getDashboardPathForRole(userProfile.role) : '/';
 
   const initialQuery =
     searchParams.get('trackingId') || searchParams.get('id') || searchParams.get('doc') || '';
@@ -56,11 +64,12 @@ export const VerifyDocumentPage: React.FC = () => {
       <header className="bg-[#0F2A4A] text-white py-10 px-4 md:px-8 border-b border-[#C9A227]/30 shadow-md">
         <div className="max-w-4xl mx-auto text-center space-y-3">
           <button
-            onClick={() => navigate('/')}
-            className="inline-flex items-center gap-1.5 text-xs text-white/70 hover:text-white transition-colors mb-2"
+            type="button"
+            onClick={() => navigate(returnPath)}
+            className="inline-flex items-center gap-1.5 text-xs text-white/85 hover:text-white transition-colors mb-2 cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Return to BAUST Career Bridge</span>
+            <span>{isApprovedUser ? 'Back to Dashboard' : 'Return to BAUST Career Bridge'}</span>
           </button>
 
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full text-xs font-semibold text-[#C9A227] border border-[#C9A227]/40">

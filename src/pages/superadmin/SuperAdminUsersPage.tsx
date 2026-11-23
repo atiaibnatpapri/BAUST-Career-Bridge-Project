@@ -205,7 +205,7 @@ export const SuperAdminUsersPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-purple-100">
         <div>
-          <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 text-[11px] font-bold">
+          <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-bold">
             User Governance
           </span>
           <h1 className="text-2xl font-black text-[#0F2A4A] tracking-tight mt-1">
@@ -237,7 +237,7 @@ export const SuperAdminUsersPage: React.FC = () => {
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            className="w-full bg-white border border-slate-300 text-xs font-semibold rounded-xl px-3 py-2.5 text-slate-800"
+            className="w-full min-h-[44px] bg-white border border-slate-300 text-xs font-semibold rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#14B8A6]/35 focus:border-[#0F2A4A]"
           >
             <option value="All">All Roles</option>
             <option value="student">Student</option>
@@ -257,8 +257,8 @@ export const SuperAdminUsersPage: React.FC = () => {
         <Card className="overflow-hidden border-slate-200">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <thead className="sticky top-0 z-10 bg-slate-50">
+                <tr className="border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-600">
                   <th className="py-3 px-4">User</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Approval Status</th>
@@ -273,30 +273,34 @@ export const SuperAdminUsersPage: React.FC = () => {
                   const isProtected = u.role === 'superAdmin' || u.id === userProfile?.id || isDemoUser;
                   const isApprovedAlumni = u.role === 'alumni' && u.verificationStatus === 'approved';
                   return (
-                    <tr key={u.id} className="hover:bg-slate-50/70">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
+                    <tr key={u.id} className="even:bg-slate-50/40 hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3 px-4 max-w-[260px]">
+                        <div className="flex items-center gap-3 min-w-0">
                           <Avatar src={u.avatar} name={u.name || 'User'} size="sm" isVerified={Boolean(u.isVerified)} />
-                          <div>
+                          <div className="min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <p className="font-bold text-slate-900">{u.name || 'User'}</p>
+                              <p className="font-bold text-slate-900 truncate" title={u.name || 'User'}>
+                                {u.name || 'User'}
+                              </p>
                               {isDemoUser && (
-                                <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
                                   DEMO
                                 </span>
                               )}
                               {Boolean(u.verifiedAlumniBadge) && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
                                   Verified Alumni
                                 </span>
                               )}
                               {Boolean(u.isFeatured) && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
                                   Featured
                                 </span>
                               )}
                             </div>
-                            <p className="text-[11px] text-slate-500 font-mono">{u.email}</p>
+                            <p className="text-xs text-slate-500 font-mono truncate" title={u.email}>
+                              {u.email}
+                            </p>
                           </div>
                         </div>
                       </td>
@@ -326,7 +330,7 @@ export const SuperAdminUsersPage: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         {isProtected ? (
-                          <span className="text-[11px] text-slate-400 italic">
+                          <span className="text-xs text-slate-500 italic">
                             {isDemoUser ? 'Demo Protected' : 'Protected'}
                           </span>
                         ) : (

@@ -55,7 +55,7 @@ export const AdminDirectoryViewPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-orange-100">
         <div>
-          <span className="px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 text-[11px] font-bold">
+          <span className="px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 text-xs font-bold">
             View-Only Directory
           </span>
           <h1 className="text-2xl font-black text-[#0F2A4A] tracking-tight mt-1">
@@ -90,7 +90,7 @@ export const AdminDirectoryViewPage: React.FC = () => {
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value as any)}
-            className="w-full bg-white border border-slate-300 text-xs font-semibold rounded-xl px-3 py-2.5 text-slate-800"
+            className="w-full min-h-[44px] bg-white border border-slate-300 text-xs font-semibold rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#14B8A6]/35 focus:border-[#0F2A4A]"
           >
             <option value="all">Students & Alumni</option>
             <option value="student">Students Only</option>
@@ -99,7 +99,7 @@ export const AdminDirectoryViewPage: React.FC = () => {
           <select
             value={deptFilter}
             onChange={(e) => setDeptFilter(e.target.value)}
-            className="w-full bg-white border border-slate-300 text-xs font-semibold rounded-xl px-3 py-2.5 text-slate-800"
+            className="w-full min-h-[44px] bg-white border border-slate-300 text-xs font-semibold rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#14B8A6]/35 focus:border-[#0F2A4A]"
           >
             <option value="All">All Departments</option>
             {BAUST_DEPARTMENTS.map((d) => (
@@ -120,8 +120,8 @@ export const AdminDirectoryViewPage: React.FC = () => {
         <Card className="overflow-hidden border-slate-200">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <thead className="sticky top-0 z-10 bg-slate-50">
+                <tr className="border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-600">
                   <th className="py-3 px-4">Member</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">BAUST ID & Dept</th>
@@ -130,13 +130,17 @@ export const AdminDirectoryViewPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50/70">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-3">
+                  <tr key={u.id} className="even:bg-slate-50/40 hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3 px-4 max-w-[240px]">
+                      <div className="flex items-center gap-3 min-w-0">
                         <Avatar src={u.avatar} name={u.name || 'User'} size="sm" isVerified={Boolean(u.isVerified)} />
-                        <div>
-                          <p className="font-bold text-slate-900">{u.name || 'BAUST Member'}</p>
-                          <p className="text-[11px] text-slate-500 font-mono">{u.email}</p>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 truncate" title={u.name || 'BAUST Member'}>
+                            {u.name || 'BAUST Member'}
+                          </p>
+                          <p className="text-xs text-slate-500 font-mono truncate" title={u.email}>
+                            {u.email}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -146,8 +150,8 @@ export const AdminDirectoryViewPage: React.FC = () => {
                       </Badge>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="font-mono font-bold text-[#0F2A4A]">{u.baustId || '—'}</span>
-                      <p className="text-[11px] text-slate-500">
+                      <span className="font-mono font-bold text-[#0F2A4A] tabular-nums">{u.baustId || '—'}</span>
+                      <p className="text-xs text-slate-500">
                         {u.department || 'CSE'} · {u.batch || ''}
                       </p>
                     </td>

@@ -12,7 +12,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Avatar } from '../../components/ui/Avatar';
 import { Input, Select } from '../../components/ui/Input';
 import { JobSector, Department } from '../../types';
-import { BAUST_DEPARTMENTS, BAUST_SECTORS } from '../../constants/baustDataModel';
+import { BAUST_DEPARTMENTS, BAUST_SECTORS, buildChatLink } from '../../constants/baustDataModel';
 import { 
   Search, 
   Filter, 
@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 
 export const AlumniDirectory: React.FC = () => {
-  const { alumniList, role } = useApp();
+  const { alumniList, role, openOrCreateConversation } = useApp();
   const navigate = useNavigate();
 
   // Filter States
@@ -338,16 +338,18 @@ export const AlumniDirectory: React.FC = () => {
                     View Profile
                   </Button>
                 </Link>
-                <Link to={`/chat?user=${alumni.id}`}>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="p-2 text-xs"
-                    title={`Message ${alumni.name}`}
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                  </Button>
-                </Link>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="p-2 text-xs"
+                  title={`Message ${alumni.name}`}
+                  onClick={async () => {
+                    const convId = await openOrCreateConversation(alumni.id, 'directory');
+                    navigate(buildChatLink(role, convId));
+                  }}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                </Button>
               </div>
             </Card>
           ))}

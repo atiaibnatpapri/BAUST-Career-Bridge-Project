@@ -4,8 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { buildChatLink } from '../../constants/baustDataModel';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -30,9 +31,10 @@ import {
 
 export const MentorshipModule: React.FC = () => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const preselectedMentorId = searchParams.get('mentor');
 
-  const { mentorshipRequests, alumniList, currentUser, requestMentorship, role } = useApp();
+  const { mentorshipRequests, alumniList, currentUser, requestMentorship, openOrCreateConversation, role } = useApp();
 
   const [activeTab, setActiveTab] = useState<string>('upcoming');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(!!preselectedMentorId);
@@ -166,9 +168,16 @@ export const MentorshipModule: React.FC = () => {
                   )}
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
-                    <Link to={`/chat?user=${session.alumniId}`} className="text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const convId = await openOrCreateConversation(session.alumniId, 'mentorship');
+                        navigate(buildChatLink(role, convId));
+                      }}
+                      className="text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1.5 cursor-pointer"
+                    >
                       <MessageSquare className="w-3.5 h-3.5" /> Message Mentor
-                    </Link>
+                    </button>
 
                     {session.meetingLink && (
                       <a

@@ -292,21 +292,29 @@ service cloud.firestore {
       );
 
       allow create: if isApproved() && isValidId(appId) && (
-        (isStudent() &&
+        ((isStudent() || isAlumni()) &&
           request.resource.data.studentId == request.auth.uid &&
           request.resource.data.status == 'Applied') ||
         isSuperAdmin()
       );
 
       allow update: if isApproved() && isValidId(appId) && (
-        (isStudent() &&
+        ((isStudent() || isAlumni()) &&
           resource.data.studentId == request.auth.uid &&
           request.resource.data.status == 'Withdrawn' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'statusHistory', 'updatedAt'])) ||
+        ((isStudent() || isAlumni()) &&
+          resource.data.studentId == request.auth.uid &&
+          resource.data.status in ['Withdrawn', 'Job Removed'] &&
+          request.resource.data.status == 'Applied' &&
+          request.resource.data.studentId == resource.data.studentId &&
+          request.resource.data.jobId == resource.data.jobId) ||
         (isAlumni() &&
           (resource.data.postedBy == request.auth.uid || resource.data.postedById == request.auth.uid) &&
-          request.resource.data.status in ['Applied', 'Under Review', 'Shortlisted', 'Interview', 'On Hold', 'Accepted', 'Rejected', 'Job Removed'] &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'statusHistory', 'updatedAt'])) ||
+          request.resource.data.status in ['Applied', 'Under Review', 'Shortlisted', 'Call for Interview', 'Interview', 'Offered', 'On Hold', 'Accepted', 'Rejected', 'Job Removed'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'statusHistory', 'updatedAt', 'interviewDate', 'interviewTime', 'interviewMode', 'interviewLink'
+          ])) ||
         isAdmin() ||
         isSuperAdmin()
       );
@@ -526,8 +534,8 @@ service cloud.firestore {
         allow create: if isApproved() && isValidId(convId) && isValidId(msgId) && (
           request.resource.data.senderId == request.auth.uid &&
           request.resource.data.text is string &&
-          request.resource.data.text.size() > 0 &&
           request.resource.data.text.size() <= 2000 &&
+          (request.resource.data.text.size() > 0 || 'attachment' in request.resource.data) &&
           isConvParticipant(get(/databases/$(database)/documents/conversations/$(convId)).data)
         );
 
@@ -612,16 +620,21 @@ service cloud.firestore {
 
       allow update: if isApproved() && isValidId(requestId) && (
         (resource.data.userId == request.auth.uid &&
-          request.resource.data.userId == resource.data.userId &&
-          resource.data.get('currentStageIndex', 1) <= 1 &&
-          !(resource.data.status in ['rejected', 'Rejected', 'cancelled', 'Cancelled', 'delivered', 'Delivered']) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'stages', 'currentStageIndex', 'currentStageKey', 'deliveryInfo',
-            'statusHistory', 'adminRemarks', 'finalDeliverable', 'deliveryUrl',
-            'pickupInfo', 'rejectionReason', 'rejectionMessage', 'actionRequiredReason',
-            'assignedStaffId', 'assignedStaffName', 'payment'
-          ]) &&
-          request.resource.data.status in ['cancelled', 'Cancelled']) ||
+          request.resource.data.userId == resource.data.userId && (
+            (resource.data.get('currentStageIndex', 1) <= 1 &&
+              !(resource.data.status in ['rejected', 'Rejected', 'cancelled', 'Cancelled', 'delivered', 'Delivered']) &&
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                'stages', 'currentStageIndex', 'currentStageKey', 'deliveryInfo',
+                'statusHistory', 'adminRemarks', 'finalDeliverable', 'deliveryUrl',
+                'pickupInfo', 'rejectionReason', 'rejectionMessage', 'actionRequiredReason',
+                'assignedStaffId', 'assignedStaffName', 'payment'
+              ]) &&
+              request.resource.data.status in ['cancelled', 'Cancelled']) ||
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['messages', 'updatedAt']) ||
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['issueRaised', 'updatedAt']) ||
+            (resource.data.status in ['ready', 'Ready', 'delivered', 'Delivered'] &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'updatedAt']))
+          )) ||
         isAdmin() ||
         isSuperAdmin()
       );
@@ -713,6 +726,43 @@ service cloud.firestore {
     match /systemSettings/{settingId} {
       allow get, list: if isApproved();
       allow write: if isSuperAdmin() && isValidId(settingId);
+    }
+
+    // 15. Stored User Files (PDF CV Fallback Sharing)
+    match /userFiles/{fileId} {
+      allow get: if isSignedIn() && isValidId(fileId) && (
+        isAdmin() ||
+        isSuperAdmin() ||
+        resource.data.ownerId == request.auth.uid ||
+        (isApproved() && resource.data.sharedWith is list && request.auth.uid in resource.data.sharedWith)
+      );
+
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+        isValidId(fileId) &&
+        request.resource.data.ownerId == request.auth.uid &&
+        request.resource.data.sizeBytes is number &&
+        request.resource.data.sizeBytes <= 716800 &&
+        request.resource.data.base64DataUrl is string &&
+        request.resource.data.base64DataUrl.size() <= 1020000 &&
+        request.resource.data.sharedWith is list &&
+        request.resource.data.sharedWith.size() <= 50;
+
+      allow update: if isApproved() && isValidId(fileId) && (
+        isAdmin() ||
+        isSuperAdmin() ||
+        (resource.data.ownerId == request.auth.uid &&
+          request.resource.data.ownerId == resource.data.ownerId &&
+          request.resource.data.sharedWith is list &&
+          request.resource.data.sharedWith.size() <= 50)
+      );
+
+      allow delete: if isApproved() && isValidId(fileId) && (
+        isAdmin() ||
+        isSuperAdmin() ||
+        resource.data.ownerId == request.auth.uid
+      );
     }
   }
 }

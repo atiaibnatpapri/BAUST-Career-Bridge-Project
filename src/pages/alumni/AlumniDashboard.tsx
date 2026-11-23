@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAdminDeskStore } from '../../hooks/useAdminDeskStore';
@@ -13,6 +13,7 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Avatar } from '../../components/ui/Avatar';
 import { Loader } from '../../components/ui/Loader';
+import { buildChatLink } from '../../constants/baustDataModel';
 import { safeArray, safeFirstWord, toList } from '../../utils/utils';
 import { formatLocalizedNumber } from '../../data/translations';
 import {
@@ -33,7 +34,17 @@ import {
 } from 'lucide-react';
 
 export const AlumniDashboard: React.FC = () => {
-  const { currentUser, mentorshipRequests, conversations, respondMentorship, t, language } = useApp();
+  const navigate = useNavigate();
+  const {
+    currentUser,
+    mentorshipRequests,
+    conversations,
+    announcements,
+    respondMentorship,
+    openOrCreateConversation,
+    t,
+    language,
+  } = useApp();
   const { firebaseUser, userProfile, loading } = useAuth();
   const { requests: docRequests, applications: myPostedApplicants } = useAdminDeskStore();
 
@@ -132,7 +143,7 @@ export const AlumniDashboard: React.FC = () => {
         ))}
 
       {/* Welcome Banner (Alumni Green Accent) */}
-      <div className="bg-gradient-to-r from-[#064E3B] via-[#1E4D3B] to-[#2E5E3E] rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-md">
+      <div className="bg-gradient-to-r from-[#064E3B] via-[#1E4D3B] to-[#2E5E3E] rounded-2xl p-6 sm:p-8 text-white relative overflow-hidden shadow-md">
         <div className="relative z-10 max-w-3xl space-y-3">
           <div className="inline-flex flex-wrap items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-xs font-semibold backdrop-blur-xs">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
@@ -140,7 +151,7 @@ export const AlumniDashboard: React.FC = () => {
               {t.sidebar.alumniPortal} · {alumniName}
             </span>
             {Boolean(userProfile?.verifiedAlumniBadge) && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-300/20 text-amber-100 text-[10px] font-bold">
+              <span className="px-2 py-0.5 rounded-full bg-amber-300/20 text-amber-100 text-xs font-bold">
                 {t.common.verifiedAlumni}
               </span>
             )}
@@ -164,7 +175,7 @@ export const AlumniDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<Video className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.sessionsWebinars}
@@ -174,7 +185,7 @@ export const AlumniDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<Calendar className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.appointments}
@@ -184,7 +195,7 @@ export const AlumniDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<Award className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.cvReview}
@@ -194,7 +205,7 @@ export const AlumniDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<Megaphone className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.eventsSummits}
@@ -204,7 +215,7 @@ export const AlumniDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<HeartHandshake className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.givingBack}
@@ -214,7 +225,7 @@ export const AlumniDashboard: React.FC = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-white border-white/30 hover:bg-white/10"
+                className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A] focus:bg-slate-100 focus:text-[#0F2A4A] active:bg-slate-200 active:text-[#0F2A4A] visited:text-[#0F2A4A] [&_svg]:text-[#0F2A4A] shadow-xs"
                 leftIcon={<FileText className="w-3.5 h-3.5" />}
               >
                 {t.sidebar.documentServices}
@@ -229,10 +240,10 @@ export const AlumniDashboard: React.FC = () => {
         {/* Profile Completion Bar */}
         <Card className="p-5 border-slate-200 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               {t.dashboard.profileCompletion}
             </span>
-            <span className="text-xs font-bold text-emerald-600">{formatLocalizedNumber(completionPct, language)}%</span>
+            <span className="text-xs font-bold text-emerald-700 tabular-nums">{formatLocalizedNumber(completionPct, language)}%</span>
           </div>
           <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
             <div
@@ -240,7 +251,7 @@ export const AlumniDashboard: React.FC = () => {
               style={{ width: `${completionPct}%` }}
             />
           </div>
-          <p className="text-[10px] text-slate-500 pt-0.5">
+          <p className="text-xs text-slate-500 pt-0.5">
             {completionPct < 100 ? (
               <Link to="/alumni/my-profile" className="text-[#0F2A4A] font-semibold hover:underline">
                 Complete your profile to reach 100%
@@ -253,14 +264,14 @@ export const AlumniDashboard: React.FC = () => {
 
         <Card className="p-5 border-slate-200 flex items-center justify-between">
           <div>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               {t.dashboard.studentsMentored}
             </p>
             <p className="text-2xl font-black text-[#0F2A4A] tabular-nums mt-0.5">
               {formatLocalizedNumber(totalMenteesCount, language)}
             </p>
-            <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
-              <TrendingUp className="w-3 h-3" /> Active mentorship impact
+            <p className="text-xs text-emerald-700 font-semibold flex items-center gap-1 mt-0.5">
+              <TrendingUp className="w-3.5 h-3.5" /> Active mentorship impact
             </p>
           </div>
           <div className="p-3 rounded-xl bg-[#0F2A4A]/10 text-[#0F2A4A]">
@@ -271,13 +282,13 @@ export const AlumniDashboard: React.FC = () => {
         <Link to="/alumni/mentorship" className="block">
           <Card className="p-5 border-slate-200 hover:border-emerald-300 transition-colors flex items-center justify-between h-full">
             <div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                 {t.dashboard.pendingRequests}
               </p>
               <p className="text-2xl font-black text-amber-700 tabular-nums mt-0.5">
                 {formatLocalizedNumber(pendingRequests.length + onHoldRequests.length, language)}
               </p>
-              <p className="text-[10px] text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
                 {formatLocalizedNumber(pendingRequests.length, language)} pending ·{' '}
                 {formatLocalizedNumber(onHoldRequests.length, language)} on hold
               </p>
@@ -291,13 +302,13 @@ export const AlumniDashboard: React.FC = () => {
         <Link to="/alumni/jobs" className="block">
           <Card className="p-5 border-slate-200 hover:border-emerald-300 transition-colors flex items-center justify-between h-full">
             <div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                 {t.dashboard.postedJobApplicants}
               </p>
               <p className="text-2xl font-black text-emerald-700 tabular-nums mt-0.5">
                 {formatLocalizedNumber(myPostedApplicants.length, language)}
               </p>
-              <p className="text-[10px] text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
                 Rating: {ratingScore === '—' ? 'New' : `${ratingScore}/5.0`} · {unreadMessagesCount} unread msgs
               </p>
             </div>
@@ -347,10 +358,10 @@ export const AlumniDashboard: React.FC = () => {
                             size="md"
                           />
                           <div>
-                            <h4 className="text-xs font-bold text-slate-900">
+                            <h4 className="text-sm font-bold text-slate-900">
                               {req.studentName ?? 'BAUST Student'}
                             </h4>
-                            <p className="text-[11px] text-slate-500">
+                            <p className="text-xs text-slate-500">
                               {req.studentDept ?? 'BAUST'} · {req.studentBatch ?? ''}
                             </p>
                             <Badge variant="navy" size="sm" className="mt-1">
@@ -458,16 +469,19 @@ export const AlumniDashboard: React.FC = () => {
                       </div>
 
                       <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <Link to={`/chat?user=${session.studentId ?? ''}`}>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-xs"
-                            leftIcon={<MessageSquare className="w-3.5 h-3.5" />}
-                          >
-                            Chat
-                          </Button>
-                        </Link>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          leftIcon={<MessageSquare className="w-3.5 h-3.5" />}
+                          onClick={async () => {
+                            if (!session.studentId) return;
+                            const convId = await openOrCreateConversation(session.studentId, 'mentorship');
+                            navigate(buildChatLink('alumni', convId));
+                          }}
+                        >
+                          Chat
+                        </Button>
                         {session.meetingLink && (
                           <a href={session.meetingLink} target="_blank" rel="noreferrer">
                             <Button
@@ -538,12 +552,12 @@ export const AlumniDashboard: React.FC = () => {
                       <p className="text-xs font-bold text-[#0F2A4A]">
                         {req.services?.[0]?.serviceName ?? 'Academic Document'}
                       </p>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-xs text-slate-500">
                         Method: {deliveryLabel} · Submitted {req.submittedAt ?? 'Recently'}
                       </p>
 
                       {req.delivery?.courierTrackingNumber && (
-                        <p className="text-[10px] text-slate-600 bg-slate-100 p-1.5 rounded font-mono">
+                        <p className="text-xs text-slate-700 bg-slate-100 p-2 rounded-lg font-mono">
                           Tracking: {req.delivery.courierTrackingNumber}
                         </p>
                       )}
@@ -563,13 +577,52 @@ export const AlumniDashboard: React.FC = () => {
             )}
           </div>
 
-          {/* Quick Notice */}
-          <Card className="p-4 bg-gradient-to-br from-[#0F2A4A]/5 to-[#2E5E3E]/5 border border-slate-200 space-y-2">
-            <h4 className="text-xs font-bold text-[#0F2A4A]">Controller Office Notice</h4>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              Official transcripts for 2016-2022 batches are dispatched via Sundarban Courier Express on Mondays & Thursdays.
-            </p>
-          </Card>
+          {/* Live University Notices */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-[#0F2A4A]">University Career Notices</h3>
+              <Link to="/alumni/notices" className="text-xs font-bold text-[#0F2A4A] hover:underline">
+                View all
+              </Link>
+            </div>
+            {(() => {
+              const todayIso = new Date().toISOString().split('T')[0];
+              const visibleNotices = safeArray(announcements).filter(
+                (n) =>
+                  Boolean(n) &&
+                  n.active !== false &&
+                  (!n.expiresAt || n.expiresAt >= todayIso) &&
+                  (n.targetAudience === 'All' || n.targetAudience === 'Alumni')
+              );
+              if (visibleNotices.length === 0) {
+                return (
+                  <Card className="p-4 border border-slate-200 text-center text-xs text-slate-500">
+                    No active university notices right now.
+                  </Card>
+                );
+              }
+              return visibleNotices.slice(0, 2).map((notice) => (
+                <Link key={notice.id} to={`/alumni/notices/${notice.id}`} className="block">
+                  <Card hoverable className="p-4 bg-gradient-to-br from-[#0F2A4A]/5 to-[#2E5E3E]/5 border border-slate-200 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge variant="army" size="sm">
+                        {notice.category}
+                      </Badge>
+                      {(notice.priority === 'Important' || notice.pinned) && (
+                        <Badge variant="pending" size="sm">
+                          Important
+                        </Badge>
+                      )}
+                    </div>
+                    <h4 className="text-sm font-bold text-[#0F2A4A]">{notice.title}</h4>
+                    <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                      {notice.content}
+                    </p>
+                  </Card>
+                </Link>
+              ));
+            })()}
+          </div>
         </div>
       </div>
     </div>

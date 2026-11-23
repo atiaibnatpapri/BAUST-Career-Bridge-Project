@@ -38,6 +38,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { auth, db, isTransientFirestoreError, subscribeFirestoreSyncState } from '../firebase';
+import { cleanPayload } from '../services/firestoreUtils';
 import { toList, safeArray } from '../utils/utils';
 import { isDemoAccountEmail } from '../config/demoConfig';
 import {
@@ -83,6 +84,7 @@ interface StaffUserShape {
   email: string;
   role: 'admin' | 'superAdmin';
   avatar: string;
+  photoURL?: string;
   department: string;
   batch: string;
   office?: string;
@@ -151,8 +153,17 @@ interface AppContextType {
   approveVerification: (userId: string) => Promise<boolean>;
   rejectVerification: (userId: string, reason: string) => Promise<boolean>;
 
-  addAnnouncement: (announcement: Omit<Announcement, 'id' | 'date'>) => void;
-  deleteAnnouncement: (id: string) => void;
+  addAnnouncement: (
+    announcement: Omit<Announcement, 'id' | 'date'>,
+    onError?: (msg: string) => void
+  ) => Promise<string | null>;
+  updateAnnouncement: (
+    id: string,
+    data: Partial<Announcement>,
+    onError?: (msg: string) => void
+  ) => Promise<boolean>;
+  toggleAnnouncementActive: (id: string, nextActive: boolean) => Promise<boolean>;
+  deleteAnnouncement: (id: string) => Promise<boolean>;
 
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
@@ -214,7 +225,8 @@ function toAlumniProfile(u: UserProfileData, viewerUid?: string, viewerRole?: Us
     name: safe.name || 'BAUST Alumni',
     email: safe.email || '',
     role: 'alumni',
-    avatar: safe.avatar || '',
+    avatar: safe.photoURL || safe.avatar || '',
+    photoURL: safe.photoURL || safe.avatar || '',
     department: normalizeDepartment(safe.department),
     batch: safe.batch || '',
     phone: safe.phone || '',
@@ -252,7 +264,8 @@ function toStudentProfile(u: UserProfileData, viewerUid?: string, viewerRole?: U
     name: safe.name || 'BAUST Student',
     email: safe.email || '',
     role: 'student',
-    avatar: safe.avatar || '',
+    avatar: safe.photoURL || safe.avatar || '',
+    photoURL: safe.photoURL || safe.avatar || '',
     department: normalizeDepartment(safe.department),
     batch: safe.batch || '',
     phone: safe.phone || '',
@@ -262,7 +275,11 @@ function toStudentProfile(u: UserProfileData, viewerUid?: string, viewerRole?: U
     cgpa: typeof safe.cgpa === 'number' ? safe.cgpa : 0,
     interests: toList(safe.interests),
     careerGoal: safe.careerGoal || '',
+    cvUrl: safe.cvUrl || '',
     cvFileName: safe.cvFileName || '',
+    cvFileDocId: safe.cvFileDocId || '',
+    cvName: safe.cvName || safe.cvFileName || '',
+    cvUpdatedAt: safe.cvUpdatedAt || '',
     skills: toList(safe.skills),
     isVerified: Boolean(safe.isVerified),
     verificationStatus: safe.verificationStatus,
@@ -661,11 +678,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             authorId: data.authorId ?? '',
             date: data.date ?? formatSubmittedTimestamp(data.createdAt).text,
             pinned: Boolean(data.pinned),
+            priority: data.priority === 'Important' || data.pinned ? 'Important' : 'Normal',
+            expiresAt: data.expiresAt ?? '',
+            active: data.active !== false,
+            updatedAt: data.updatedAt,
             linkText: data.linkText,
             linkUrl: data.linkUrl,
             isDemo: Boolean(data.isDemo),
           };
         });
+        docs.sort((a, b) => Number(b.pinned || b.priority === 'Important') - Number(a.pinned || a.priority === 'Important'));
         setAnnouncements(docs);
       },
       (err) => {
@@ -773,7 +795,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       name: userProfile.name || (userProfile.role === 'superAdmin' ? 'Super Admin' : 'BAUST Admin'),
       email: userProfile.email || '',
       role: userProfile.role,
-      avatar: userProfile.avatar || '',
+      avatar: userProfile.photoURL || userProfile.avatar || '',
+      photoURL: userProfile.photoURL || userProfile.avatar || '',
       department: normalizeDepartment(userProfile.department),
       batch: userProfile.batch || '',
       office: userProfile.office || '',
@@ -783,6 +806,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } as StaffUserShape;
   }, [userProfile, firebaseUser?.uid]);
 
+  // Enrich conversations with live avatars & names from allUsers so photo updates reflect instantly
+  const enrichedConversations = React.useMemo(() => {
+    if (allUsers.length === 0) return conversations;
+    const userMap = new Map<string, UserProfileData>();
+    allUsers.forEach((u) => {
+      const uid = u.id || u.uid;
+      if (uid) userMap.set(uid, u);
+    });
+    return conversations.map((c) => {
+      const liveOther = userMap.get(c.participantId);
+      if (!liveOther) return c;
+      const liveAvatar = liveOther.photoURL || liveOther.avatar || c.participantAvatar;
+      const liveName = liveOther.name || c.participantName;
+      if (liveAvatar === c.participantAvatar && liveName === c.participantName) return c;
+      return {
+        ...c,
+        participantAvatar: liveAvatar,
+        participantName: liveName,
+      };
+    });
+  }, [conversations, allUsers]);
+
   const addServiceRequest = (
     newReq: Omit<ServiceRequest, 'id' | 'submittedAt' | 'timeline' | 'status' | 'estimatedDelivery'>
   ) => {
@@ -791,55 +836,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const nowIso = new Date().toISOString();
     const applicantName = userProfile?.name || newReq.alumniName || 'BAUST Member';
     const stages = buildInitialDocumentStages(applicantName, nowIso);
-    void setDoc(doc(db, 'documentRequests', trackingId), {
-      id: trackingId,
-      trackingId,
-      userId: firebaseUser.uid,
-      userName: applicantName,
-      userEmail: userProfile?.email || newReq.alumniEmail,
-      userRole: userProfile?.role || 'student',
-      baustId: userProfile?.baustId || newReq.baustId || '',
-      department: newReq.department || userProfile?.department || '',
-      batch: userProfile?.batch || '',
-      passingYear: userProfile?.passingYear || 0,
-      alumniPhone: userProfile?.phone || '',
-      type: newReq.documentType,
-      copies: newReq.copies,
-      purpose: newReq.purpose,
-      deliveryMethod: newReq.deliveryMethod,
-      deliveryAddress: newReq.deliveryAddress || '',
-      paymentMethod: newReq.paymentMethod,
-      transactionId: newReq.transactionId,
-      fee: newReq.amount,
-      status: 'submitted',
-      stages,
-      currentStageIndex: 1,
-      currentStageKey: 'payment_verified',
-      payment: {
-        method: newReq.paymentMethod,
+    void setDoc(
+      doc(db, 'documentRequests', trackingId),
+      cleanPayload({
+        id: trackingId,
+        trackingId,
+        userId: firebaseUser.uid,
+        userName: applicantName,
+        userEmail: userProfile?.email || newReq.alumniEmail,
+        userRole: userProfile?.role || 'student',
+        baustId: userProfile?.baustId || newReq.baustId || '',
+        department: newReq.department || userProfile?.department || '',
+        batch: userProfile?.batch || '',
+        passingYear: userProfile?.passingYear || 0,
+        alumniPhone: userProfile?.phone || '',
+        type: newReq.documentType,
+        copies: newReq.copies,
+        purpose: newReq.purpose,
+        deliveryMethod: newReq.deliveryMethod,
+        deliveryAddress: newReq.deliveryAddress || '',
+        paymentMethod: newReq.paymentMethod,
         transactionId: newReq.transactionId,
-        subtotal: newReq.amount,
-        urgencyFee: 0,
-        courierFee: 0,
-        totalAmount: newReq.amount,
-        isVerified: false,
-        paidAt: nowIso,
-      },
-      statusHistory: [
-        {
-          status: 'Submitted',
-          stageKey: 'submitted',
-          action: 'submit',
-          at: nowIso,
-          by: firebaseUser.uid,
-          byName: applicantName,
-          note: `Submitted ${newReq.documentType} (${newReq.copies} copy)`,
+        fee: newReq.amount,
+        status: 'submitted',
+        stages,
+        currentStageIndex: 1,
+        currentStageKey: 'payment_verified',
+        payment: {
+          method: newReq.paymentMethod,
+          transactionId: newReq.transactionId,
+          subtotal: newReq.amount,
+          urgencyFee: 0,
+          courierFee: 0,
+          totalAmount: newReq.amount,
+          isVerified: false,
+          paidAt: nowIso,
         },
-      ],
-      isDemo: Boolean(userProfile?.isDemo),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
+        statusHistory: [
+          {
+            status: 'Submitted',
+            stageKey: 'submitted',
+            action: 'submit',
+            at: nowIso,
+            by: firebaseUser.uid,
+            byName: applicantName,
+            note: `Submitted ${newReq.documentType} (${newReq.copies} copy)`,
+          },
+        ],
+        isDemo: Boolean(userProfile?.isDemo),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    )
       .then(() => {
         void triggerNotification({
           recipientId: 'ALL_ADMINS',
@@ -870,17 +918,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .then(async (snap) => {
         const snapData = snap.exists() ? (snap.data() as Record<string, any>) : {};
         const prevHistory = Array.isArray(snapData.statusHistory) ? snapData.statusHistory : [];
-        await updateDoc(doc(db, 'documentRequests', id), {
-          status: status.toLowerCase(),
-          remarks: remarks || '',
-          adminRemarks: remarks || '',
-          trackingNumber: trackingNumber || '',
-          statusHistory: [
-            ...prevHistory,
-            { status, at: nowIso, by: actorName, note: remarks || `Updated to ${status}` },
-          ],
-          updatedAt: serverTimestamp(),
-        });
+        await updateDoc(
+          doc(db, 'documentRequests', id),
+          cleanPayload({
+            status: status.toLowerCase(),
+            remarks: remarks || '',
+            adminRemarks: remarks || '',
+            trackingNumber: trackingNumber || '',
+            statusHistory: [
+              ...prevHistory,
+              { status, at: nowIso, by: actorName, note: remarks || `Updated to ${status}` },
+            ],
+            updatedAt: serverTimestamp(),
+          })
+        );
 
         const recipientUid = target?.alumniId || snapData.userId;
         const applicantRole = snapData.userRole || 'student';
@@ -1438,53 +1489,156 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const addAnnouncement = (item: Omit<Announcement, 'id' | 'date'>) => {
+  const addAnnouncement = async (
+    item: Omit<Announcement, 'id' | 'date'>,
+    onError?: (msg: string) => void
+  ): Promise<string | null> => {
     const dateLabel = new Date().toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     });
 
-    if (firebaseUser && (userProfile?.role === 'admin' || userProfile?.role === 'superAdmin')) {
-      void addDoc(collection(db, 'announcements'), {
+    if (!firebaseUser || (userProfile?.role !== 'admin' && userProfile?.role !== 'superAdmin')) {
+      const msg = 'Admin or Super Admin authorization is required to publish notices.';
+      onError?.(msg);
+      addToast('error', 'Publish Failed', msg);
+      return null;
+    }
+
+    try {
+      const isImportant = item.priority === 'Important' || Boolean(item.pinned);
+      const docPayload = cleanPayload({
         ...item,
+        title: (item.title || '').trim(),
+        content: (item.content || '').trim(),
+        author: (item.author || '').trim() || 'Registrar & Alumni Relations Office',
+        targetAudience: item.targetAudience || 'All',
+        pinned: isImportant,
+        priority: item.priority || (isImportant ? 'Important' : 'Normal'),
+        expiresAt: (item.expiresAt || '').trim(),
+        linkText: (item.linkText || '').trim(),
+        linkUrl: (item.linkUrl || '').trim(),
+        active: item.active !== false,
         authorId: firebaseUser.uid,
         date: dateLabel,
         isDemo: Boolean(userProfile?.isDemo),
         createdAt: serverTimestamp(),
-      })
-        .then((ref) => {
-          const recipientTarget =
-            item.targetAudience === 'Students'
-              ? 'ALL_STUDENTS'
-              : item.targetAudience === 'Alumni'
-              ? 'ALL_ALUMNI'
-              : 'ALL_USERS';
-          void triggerNotification({
-            recipientId: recipientTarget,
-            title: `University Notice: ${item.title}`,
-            message: item.content.slice(0, 120),
-            type: 'announcement',
-            link: recipientTarget === 'ALL_ALUMNI' ? '/alumni/admin-desk' : '/student/dashboard',
-            itemId: ref.id,
-          });
-          addToast('success', 'Announcement Published', item.title);
-        })
-        .catch((err) => {
-          addToast('error', 'Publish Failed', err?.message || 'Permission denied.');
+        updatedAt: serverTimestamp(),
+      });
+
+      const ref = await addDoc(collection(db, 'announcements'), docPayload);
+
+      const titlePrefix = isImportant ? '[Important Notice] ' : 'University Notice: ';
+      if (item.targetAudience === 'Students') {
+        void triggerNotification({
+          recipientId: 'ALL_STUDENTS',
+          title: `${titlePrefix}${docPayload.title}`,
+          message: docPayload.content.slice(0, 120),
+          type: 'announcement',
+          link: `/student/notices/${ref.id}`,
+          itemId: ref.id,
         });
+      } else if (item.targetAudience === 'Alumni') {
+        void triggerNotification({
+          recipientId: 'ALL_ALUMNI',
+          title: `${titlePrefix}${docPayload.title}`,
+          message: docPayload.content.slice(0, 120),
+          type: 'announcement',
+          link: `/alumni/notices/${ref.id}`,
+          itemId: ref.id,
+        });
+      } else {
+        void triggerNotification({
+          recipientId: 'ALL_STUDENTS',
+          title: `${titlePrefix}${docPayload.title}`,
+          message: docPayload.content.slice(0, 120),
+          type: 'announcement',
+          link: `/student/notices/${ref.id}`,
+          itemId: ref.id,
+        });
+        void triggerNotification({
+          recipientId: 'ALL_ALUMNI',
+          title: `${titlePrefix}${docPayload.title}`,
+          message: docPayload.content.slice(0, 120),
+          type: 'announcement',
+          link: `/alumni/notices/${ref.id}`,
+          itemId: ref.id,
+        });
+      }
+
+      addToast('success', 'Announcement Published', docPayload.title);
+      return ref.id;
+    } catch (err: any) {
+      const errMsg = err?.message || 'Unable to publish announcement. Please try again.';
+      onError?.(errMsg);
+      addToast('error', 'Publish Failed', errMsg);
+      return null;
     }
   };
 
-  const deleteAnnouncement = (id: string) => {
-    if (firebaseUser && (userProfile?.role === 'admin' || userProfile?.role === 'superAdmin')) {
-      void deleteDoc(doc(db, 'announcements', id))
-        .then(() => {
-          addToast('info', 'Announcement Deleted');
+  const updateAnnouncement = async (
+    id: string,
+    data: Partial<Announcement>,
+    onError?: (msg: string) => void
+  ): Promise<boolean> => {
+    if (!firebaseUser || (userProfile?.role !== 'admin' && userProfile?.role !== 'superAdmin')) {
+      const msg = 'Admin or Super Admin authorization is required to update notices.';
+      onError?.(msg);
+      addToast('error', 'Update Failed', msg);
+      return false;
+    }
+    try {
+      const payload = cleanPayload<Record<string, any>>({
+        ...data,
+        ...(data.expiresAt !== undefined ? { expiresAt: (data.expiresAt || '').trim() } : {}),
+        ...(data.linkText !== undefined ? { linkText: (data.linkText || '').trim() } : {}),
+        ...(data.linkUrl !== undefined ? { linkUrl: (data.linkUrl || '').trim() } : {}),
+        ...(data.priority !== undefined ? { pinned: data.priority === 'Important' || Boolean(data.pinned) } : {}),
+        updatedAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'announcements', id), payload);
+      addToast('success', 'Announcement Updated', data.title || 'Changes saved.');
+      return true;
+    } catch (err: any) {
+      const errMsg = err?.message || 'Could not update announcement.';
+      onError?.(errMsg);
+      addToast('error', 'Update Failed', errMsg);
+      return false;
+    }
+  };
+
+  const toggleAnnouncementActive = async (id: string, nextActive: boolean): Promise<boolean> => {
+    if (!firebaseUser || (userProfile?.role !== 'admin' && userProfile?.role !== 'superAdmin')) {
+      return false;
+    }
+    try {
+      await updateDoc(
+        doc(db, 'announcements', id),
+        cleanPayload({
+          active: nextActive,
+          updatedAt: serverTimestamp(),
         })
-        .catch((err) => {
-          addToast('error', 'Delete Failed', err?.message || 'Permission denied.');
-        });
+      );
+      addToast('info', nextActive ? 'Announcement Activated' : 'Announcement Deactivated');
+      return true;
+    } catch (err: any) {
+      addToast('error', 'Update Failed', err?.message || 'Could not toggle status.');
+      return false;
+    }
+  };
+
+  const deleteAnnouncement = async (id: string): Promise<boolean> => {
+    if (!firebaseUser || (userProfile?.role !== 'admin' && userProfile?.role !== 'superAdmin')) {
+      return false;
+    }
+    try {
+      await deleteDoc(doc(db, 'announcements', id));
+      addToast('info', 'Announcement Deleted');
+      return true;
+    } catch (err: any) {
+      addToast('error', 'Delete Failed', err?.message || 'Permission denied.');
+      return false;
     }
   };
 
@@ -1559,7 +1713,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         mentorshipRequests,
         verifications,
         verificationsLoading,
-        conversations,
+        conversations: enrichedConversations,
         conversationsLoading,
         isReconnecting,
         messages,
@@ -1579,6 +1733,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sendMessage,
         openOrCreateConversation,
         addAnnouncement,
+        updateAnnouncement,
+        toggleAnnouncementActive,
         deleteAnnouncement,
         markNotificationRead,
         markAllNotificationsRead,

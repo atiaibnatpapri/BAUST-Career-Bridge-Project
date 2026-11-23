@@ -44,7 +44,7 @@ export const Tabs: React.FC<TabsProps> = ({
             <span>{tab.label}</span>
             {tab.badge !== undefined && (
               <span
-                className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                className={`text-xs px-1.5 py-0.5 rounded-full font-bold tabular-nums ${
                   isActive
                     ? 'bg-[#0F2A4A] text-white'
                     : 'bg-slate-200 text-slate-700'

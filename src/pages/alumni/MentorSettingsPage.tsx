@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -25,18 +25,26 @@ import {
 export const MentorSettingsPage: React.FC = () => {
   const { currentUser, alumniList, updateAlumniMentorSettings } = useApp();
 
-  const currentAlumni = alumniList[0];
+  const currentAlumni =
+    alumniList.find((a) => a.id === currentUser?.id) || alumniList[0];
 
   const [mentoringAvailable, setMentoringAvailable] = useState<boolean>(
-    currentAlumni.mentoringAvailable
+    Boolean(currentAlumni?.mentoringAvailable)
   );
-  const [slots, setSlots] = useState<string[]>(currentAlumni.availableSlots);
+  const [slots, setSlots] = useState<string[]>(currentAlumni?.availableSlots ?? []);
   const [newSlotDay, setNewSlotDay] = useState('Friday');
   const [newSlotTime, setNewSlotTime] = useState('8:00 PM');
   
   const [selectedTopics, setSelectedTopics] = useState<MentorshipTopic[]>(
-    currentAlumni.mentorshipTopics
+    currentAlumni?.mentorshipTopics ?? []
   );
+
+  useEffect(() => {
+    if (!currentAlumni) return;
+    setMentoringAvailable(Boolean(currentAlumni.mentoringAvailable));
+    setSlots(currentAlumni.availableSlots ?? []);
+    setSelectedTopics(currentAlumni.mentorshipTopics ?? []);
+  }, [currentAlumni?.id]);
 
   const [meetingPlatform, setMeetingPlatform] = useState('Google Meet');
   const [maxMenteesPerMonth, setMaxMenteesPerMonth] = useState('4');

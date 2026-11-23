@@ -19,6 +19,7 @@ export interface StudentCvPdfInput {
   skills?: string[];
   cvFileName?: string;
   verificationStatus?: string;
+  photoURL?: string;
 }
 
 export function generateStudentCvPdf(profile: StudentCvPdfInput): string {
@@ -65,6 +66,17 @@ export function generateStudentCvPdf(profile: StudentCvPdfInput): string {
   // Gold Accent Strip
   doc.setFillColor(201, 162, 39); // #C9A227
   doc.rect(0, 42, pageWidth, 2, 'F');
+
+  if (profile.photoURL && /^data:image\/(jpeg|jpg|png);base64,/i.test(profile.photoURL)) {
+    try {
+      const fmt = profile.photoURL.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(pageWidth - margin - 26, 7, 26, 26, 3, 3, 'F');
+      doc.addImage(profile.photoURL, fmt, pageWidth - margin - 25, 8, 24, 24);
+    } catch {
+      // Skip portrait if canvas/data URL fails image decoding
+    }
+  }
 
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');

@@ -23,6 +23,7 @@ import {
 import { initializeApp, deleteApp, FirebaseApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { db, firebaseConfig } from '../firebase';
+import { cleanPayload } from './firestoreUtils';
 import { DEMO_ACCOUNTS, DEMO_PASSWORD, ENABLE_DEMO_LOGIN } from '../config/demoConfig';
 import { buildDemoUserPayload } from './demoProvisioning';
 import {
@@ -35,6 +36,7 @@ import {
 } from '../types';
 import { toList } from '../utils/utils';
 import { buildInitialDocumentStages } from '../constants/baustDataModel';
+import { grantUserFileAccess } from './fileUploadService';
 
 export function tsToMillis(raw: any): number {
   if (!raw) return 0;
@@ -66,12 +68,15 @@ export async function logPortalActivity(params: {
   isDemo?: boolean;
 }): Promise<void> {
   try {
-    await addDoc(collection(db, 'activityLogs'), {
-      ...params,
-      ownerId: params.actorId,
-      isDemo: Boolean(params.isDemo),
-      createdAt: serverTimestamp(),
-    });
+    await addDoc(
+      collection(db, 'activityLogs'),
+      cleanPayload({
+        ...params,
+        ownerId: params.actorId,
+        isDemo: Boolean(params.isDemo),
+        createdAt: serverTimestamp(),
+      })
+    );
   } catch (err) {
     console.warn('Activity log note:', err);
   }
@@ -116,12 +121,15 @@ export function subscribeJobs(
 export async function createJobPosting(
   payload: Omit<JobPosting, 'id' | 'createdAt' | 'createdAtLabel'>
 ): Promise<string> {
-  const ref = await addDoc(collection(db, 'jobs'), {
-    ...payload,
-    requirements: toList(payload.requirements),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const ref = await addDoc(
+    collection(db, 'jobs'),
+    cleanPayload({
+      ...payload,
+      requirements: toList(payload.requirements),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  );
   return ref.id;
 }
 
@@ -204,11 +212,20 @@ export function subscribeJobApplications(
           studentId: data.studentId ?? '',
           studentName: data.studentName ?? 'BAUST Student',
           studentEmail: data.studentEmail ?? '',
+          applicantRole: (data.applicantRole as UserRole) ?? undefined,
+          applicantPhotoURL: data.applicantPhotoURL ?? '',
           department: data.department ?? 'CSE',
           batch: data.batch ?? '',
           cgpa: String(data.cgpa ?? ''),
-          cvFileName: data.cvFileName ?? '',
+          cvFileName: data.cvFileName ?? data.cvName ?? '',
+          cvName: data.cvName ?? data.cvFileName ?? '',
+          cvUrl: data.cvUrl ?? '',
+          cvFileDocId: data.cvFileDocId ?? '',
           coverNote: data.coverNote ?? '',
+          interviewDate: data.interviewDate ?? '',
+          interviewTime: data.interviewTime ?? '',
+          interviewMode: data.interviewMode ?? '',
+          interviewLink: data.interviewLink ?? '',
           status: data.status ?? 'Applied',
           statusHistory: Array.isArray(data.statusHistory) ? data.statusHistory : [],
           isDemo: Boolean(data.isDemo),
@@ -228,26 +245,81 @@ export async function applyToJob(
   payload: Omit<JobApplication, 'id' | 'status' | 'createdAt' | 'createdAtLabel'>
 ): Promise<string> {
   const docId = `${payload.jobId}_${payload.studentId}`;
+  const appRef = doc(db, 'jobApplications', docId);
+  const existing = await getDoc(appRef).catch(() => null);
   const nowIso = new Date().toISOString();
   const ownerId = payload.postedBy || payload.postedById || '';
-  await setDoc(doc(db, 'jobApplications', docId), {
-    ...payload,
-    postedBy: ownerId,
-    postedById: ownerId,
-    postedByName: payload.postedByName || '',
-    postedByRole: payload.postedByRole || 'alumni',
-    status: 'Applied',
-    statusHistory: [
-      {
+
+  if (existing && existing.exists()) {
+    const prevStatus = existing.data()?.status;
+    if (prevStatus !== 'Withdrawn' && prevStatus !== 'Job Removed') {
+      throw new Error('You have already submitted an active application for this position.');
+    }
+
+    await updateDoc(
+      appRef,
+      cleanPayload({
+        jobTitle: payload.jobTitle,
+        company: payload.company,
+        postedBy: ownerId,
+        postedById: ownerId,
+        postedByName: payload.postedByName || '',
+        postedByRole: payload.postedByRole || 'alumni',
+        studentName: payload.studentName,
+        studentEmail: payload.studentEmail,
+        applicantRole: payload.applicantRole || 'student',
+        applicantPhotoURL: payload.applicantPhotoURL || '',
+        department: payload.department,
+        batch: payload.batch,
+        cgpa: payload.cgpa,
+        cvFileName: payload.cvFileName,
+        cvName: payload.cvName || payload.cvFileName,
+        cvUrl: payload.cvUrl || '',
+        cvFileDocId: payload.cvFileDocId || '',
+        coverNote: payload.coverNote,
         status: 'Applied',
-        at: nowIso,
-        by: payload.studentName || 'Student',
-        note: payload.coverNote ? 'Application submitted with cover note.' : 'Application submitted.',
-      },
-    ],
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+        statusHistory: arrayUnion({
+          status: 'Applied',
+          at: nowIso,
+          by: payload.studentName || 'Applicant',
+          note: 'Re-applied to this position.',
+        }),
+        updatedAt: serverTimestamp(),
+      })
+    );
+  } else {
+    await setDoc(
+      appRef,
+      cleanPayload({
+        ...payload,
+        postedBy: ownerId,
+        postedById: ownerId,
+        postedByName: payload.postedByName || '',
+        postedByRole: payload.postedByRole || 'alumni',
+        applicantRole: payload.applicantRole || 'student',
+        applicantPhotoURL: payload.applicantPhotoURL || '',
+        cvName: payload.cvName || payload.cvFileName,
+        cvUrl: payload.cvUrl || '',
+        cvFileDocId: payload.cvFileDocId || '',
+        status: 'Applied',
+        statusHistory: [
+          {
+            status: 'Applied',
+            at: nowIso,
+            by: payload.studentName || 'Applicant',
+            note: payload.coverNote ? 'Application submitted with cover note.' : 'Application submitted.',
+          },
+        ],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+  }
+
+  if (payload.cvFileDocId && ownerId) {
+    await grantUserFileAccess(payload.cvFileDocId, ownerId);
+  }
+
   return docId;
 }
 
@@ -255,10 +327,16 @@ export async function updateApplicationStatusFirestore(
   appId: string,
   status: JobApplication['status'],
   actorName?: string,
-  note?: string
+  note?: string,
+  interviewMeta?: {
+    interviewDate?: string;
+    interviewTime?: string;
+    interviewMode?: string;
+    interviewLink?: string;
+  }
 ): Promise<void> {
   const nowIso = new Date().toISOString();
-  await updateDoc(doc(db, 'jobApplications', appId), {
+  const patch: Record<string, any> = {
     status,
     statusHistory: arrayUnion({
       status,
@@ -267,7 +345,14 @@ export async function updateApplicationStatusFirestore(
       note: note || `Status changed to ${status}.`,
     }),
     updatedAt: serverTimestamp(),
-  });
+  };
+  if (interviewMeta) {
+    if (interviewMeta.interviewDate !== undefined) patch.interviewDate = interviewMeta.interviewDate;
+    if (interviewMeta.interviewTime !== undefined) patch.interviewTime = interviewMeta.interviewTime;
+    if (interviewMeta.interviewMode !== undefined) patch.interviewMode = interviewMeta.interviewMode;
+    if (interviewMeta.interviewLink !== undefined) patch.interviewLink = interviewMeta.interviewLink;
+  }
+  await updateDoc(doc(db, 'jobApplications', appId), cleanPayload(patch));
 }
 
 export function subscribeEvents(
@@ -307,11 +392,14 @@ export function subscribeEvents(
 export async function createEventItem(
   payload: Omit<EventItem, 'id' | 'attendeeIds' | 'createdAt'>
 ): Promise<string> {
-  const ref = await addDoc(collection(db, 'events'), {
-    ...payload,
-    attendeeIds: [payload.organizerId],
-    createdAt: serverTimestamp(),
-  });
+  const ref = await addDoc(
+    collection(db, 'events'),
+    cleanPayload({
+      ...payload,
+      attendeeIds: [payload.organizerId],
+      createdAt: serverTimestamp(),
+    })
+  );
   return ref.id;
 }
 
@@ -356,11 +444,14 @@ export function subscribeContributions(
 export async function createContribution(
   payload: Omit<ContributionItem, 'id' | 'status' | 'createdAt' | 'createdAtLabel'>
 ): Promise<string> {
-  const ref = await addDoc(collection(db, 'contributions'), {
-    ...payload,
-    status: 'Pledged',
-    createdAt: serverTimestamp(),
-  });
+  const ref = await addDoc(
+    collection(db, 'contributions'),
+    cleanPayload({
+      ...payload,
+      status: 'Pledged',
+      createdAt: serverTimestamp(),
+    })
+  );
   return ref.id;
 }
 
@@ -452,25 +543,28 @@ export async function createFirestoreMentorship(payload: {
   isDemo?: boolean;
 }): Promise<string> {
   const nowIso = new Date().toISOString();
-  const ref = await addDoc(collection(db, 'mentorships'), {
-    ...payload,
-    mentorId: payload.alumniId,
-    mentorName: payload.alumniName,
-    message: payload.note,
-    status: 'Pending',
-    meetingLink: '',
-    feedback: '',
-    statusHistory: [
-      {
-        status: 'Pending',
-        at: nowIso,
-        by: payload.studentName || 'Student',
-        note: payload.note || '',
-      },
-    ],
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const ref = await addDoc(
+    collection(db, 'mentorships'),
+    cleanPayload({
+      ...payload,
+      mentorId: payload.alumniId,
+      mentorName: payload.alumniName,
+      message: payload.note,
+      status: 'Pending',
+      meetingLink: '',
+      feedback: '',
+      statusHistory: [
+        {
+          status: 'Pending',
+          at: nowIso,
+          by: payload.studentName || 'Student',
+          note: payload.note || '',
+        },
+      ],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  );
   return ref.id;
 }
 
@@ -498,7 +592,7 @@ export async function updateFirestoreMentorship(
   } else if (action === 'Declined' || action === 'Cancelled') {
     patch.meetingLink = '';
   }
-  await updateDoc(doc(db, 'mentorships', id), patch);
+  await updateDoc(doc(db, 'mentorships', id), cleanPayload(patch));
 }
 
 /**
@@ -637,6 +731,9 @@ export async function seedDemoAccountsAndData(actor: {
     authorId: demoAdminUid,
     date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     pinned: true,
+    priority: 'Important',
+    active: true,
+    expiresAt: '',
     isDemo: true,
     createdAt: serverTimestamp(),
   });
@@ -805,6 +902,8 @@ export async function seedDemoAccountsAndData(actor: {
       alumniCompany: 'Brain Station 23',
       alumniAvatar: DEMO_ACCOUNTS[1].avatar,
       date: '2026-12-16',
+      startTime: '20:00',
+      endTime: '20:30',
       timeSlot: '08:00 PM - 08:30 PM',
       mode: 'Google Meet',
       meetingLink: 'https://meet.google.com/baust-slot-demo1',

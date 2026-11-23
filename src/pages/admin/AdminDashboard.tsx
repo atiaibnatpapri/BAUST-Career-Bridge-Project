@@ -15,7 +15,6 @@ import { JobPosting } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
-import { Badge } from '../../components/ui/Badge';
 import { Loader } from '../../components/ui/Loader';
 import {
   Users,
@@ -65,32 +64,37 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-orange-100">
-        <div>
+      <div className="bg-gradient-to-r from-[#7C2D12] via-[#C2410C] to-[#EA580C] rounded-2xl p-6 sm:p-8 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 text-[11px] font-bold">
+            <span className="px-2.5 py-0.5 rounded-full bg-white/15 text-white text-xs font-bold backdrop-blur-xs">
               {t.sidebar.adminPortal} · Orange Portal
             </span>
-            <Badge variant="neutral" size="sm">
+            <span className="px-2.5 py-0.5 rounded-full bg-orange-950/35 text-orange-100 text-xs font-semibold">
               {userProfile?.office || 'University Administration'}
-            </Badge>
+            </span>
           </div>
-          <h1 className="text-2xl font-black text-[#0F2A4A] tracking-tight mt-1">
+          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
             BAUST Admin Operations Console
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-orange-50/90">
             Manage job postings, process document requests, moderate safety reports, publish notices, and view live analytics
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           <Link to="/admin/jobs">
-            <Button variant="primary" size="sm" className="bg-orange-600 hover:bg-orange-700" leftIcon={<Briefcase className="w-4 h-4" />}>
+            <Button variant="accent" size="sm" leftIcon={<Briefcase className="w-4 h-4" />}>
               {t.sidebar.manageJobs} ({jobs.length})
             </Button>
           </Link>
           <Link to="/admin/admin-desk?tab=requests">
-            <Button variant="outline" size="sm" leftIcon={<FileText className="w-4 h-4" />}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-white/90 bg-white text-[#0F2A4A] hover:bg-slate-100 hover:text-[#0F2A4A]"
+              leftIcon={<FileText className="w-4 h-4" />}
+            >
               {t.sidebar.documentRequests} ({pendingDocs})
             </Button>
           </Link>

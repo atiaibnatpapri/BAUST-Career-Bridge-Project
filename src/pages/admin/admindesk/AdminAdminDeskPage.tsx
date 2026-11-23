@@ -420,8 +420,8 @@ export const AdminAdminDeskPage: React.FC = () => {
 
             <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase tracking-wider font-semibold">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-slate-600 uppercase tracking-wider font-semibold">
                     <tr>
                       <th className="py-3.5 px-4">Requester</th>
                       <th className="py-3.5 px-4">Document Type</th>
@@ -430,10 +430,10 @@ export const AdminAdminDeskPage: React.FC = () => {
                       <th className="py-3.5 px-4 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-slate-100">
                     {filteredRequests.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-12 text-center text-gray-500 text-sm">
+                        <td colSpan={5} className="py-12 text-center text-slate-500 text-sm">
                           No document requests match the selected filter.
                         </td>
                       </tr>
@@ -449,22 +449,29 @@ export const AdminAdminDeskPage: React.FC = () => {
                           <tr
                             key={r.id}
                             onClick={() => navigate(`/admin/admin-desk/requests/${r.id}`)}
-                            className="hover:bg-gray-50 cursor-pointer transition-colors"
+                            className="even:bg-slate-50/40 hover:bg-slate-50/80 cursor-pointer transition-colors"
                           >
-                            <td className="py-3.5 px-4">
-                              <div className="font-semibold text-gray-900">{r.alumniName}</div>
-                              <div className="text-[11px] text-gray-500 flex items-center gap-1.5 mt-0.5">
-                                <span className="font-mono font-bold text-[#0F2A4A]">{r.id}</span>
+                            <td className="py-3.5 px-4 max-w-[220px]">
+                              <div className="font-semibold text-slate-900 truncate" title={r.alumniName}>
+                                {r.alumniName}
+                              </div>
+                              <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5 truncate">
+                                <span className="font-mono font-bold text-[#0F2A4A] tabular-nums">{r.id}</span>
                                 {r.department && <span>&bull; {r.department}</span>}
                               </div>
                             </td>
-                            <td className="py-3.5 px-4">
-                              <div className="font-medium text-gray-800">{r.services[0]?.serviceName || 'Academic Document'}</div>
-                              <div className="text-[11px] text-gray-500">{r.delivery.method}</div>
+                            <td className="py-3.5 px-4 max-w-[220px]">
+                              <div
+                                className="font-medium text-slate-800 truncate"
+                                title={r.services[0]?.serviceName || 'Academic Document'}
+                              >
+                                {r.services[0]?.serviceName || 'Academic Document'}
+                              </div>
+                              <div className="text-xs text-slate-500 truncate">{r.delivery.method}</div>
                             </td>
                             <td className="py-3.5 px-4">
                               <span
-                                className={`text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${
+                                className={`text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${
                                   isDelivered
                                     ? 'bg-emerald-100 text-emerald-800'
                                     : isRejected
@@ -485,7 +492,7 @@ export const AdminAdminDeskPage: React.FC = () => {
                                   : `Step ${stageIdx + 1} of 6: ${currentStageDef.label}`}
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 text-gray-500 whitespace-nowrap">
+                            <td className="py-3.5 px-4 text-slate-500 whitespace-nowrap tabular-nums">
                               {r.submittedAt}
                             </td>
                             <td className="py-3.5 px-4 text-right">
@@ -787,8 +794,8 @@ export const AdminAdminDeskPage: React.FC = () => {
             {vacancySubTab === 'applications' && (
               <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase tracking-wider font-semibold">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-slate-600 uppercase tracking-wider font-semibold">
                       <tr>
                         <th className="py-3.5 px-4">Applicant</th>
                         <th className="py-3.5 px-4">Position</th>
@@ -799,32 +806,40 @@ export const AdminAdminDeskPage: React.FC = () => {
                         <th className="py-3.5 px-4 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-slate-100">
                       {applications.map(app => (
                         <tr
                           key={app.id}
-                          className="hover:bg-gray-50 transition-colors cursor-pointer"
+                          className="even:bg-slate-50/40 hover:bg-slate-50/80 transition-colors cursor-pointer"
                           onClick={() => setSelectedApplication(app)}
                         >
-                          <td className="py-3.5 px-4">
-                            <div className="font-semibold text-gray-900">{app.alumniName}</div>
-                            <div className="text-[11px] text-gray-500">{app.alumniEmail}</div>
+                          <td className="py-3.5 px-4 max-w-[200px]">
+                            <div className="font-semibold text-slate-900 truncate" title={app.alumniName}>
+                              {app.alumniName}
+                            </div>
+                            <div className="text-xs text-slate-500 truncate" title={app.alumniEmail}>
+                              {app.alumniEmail}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 max-w-[200px]">
+                            <div className="font-medium text-slate-800 truncate" title={app.vacancyTitle}>
+                              {app.vacancyTitle}
+                            </div>
+                            <div className="text-xs text-slate-500 truncate">{app.department}</div>
                           </td>
                           <td className="py-3.5 px-4">
-                            <div className="font-medium text-gray-800">{app.vacancyTitle}</div>
-                            <div className="text-[11px] text-gray-500">{app.department}</div>
+                            <span className="font-bold text-[#0F2A4A] tabular-nums">CGPA: {app.cgpa}</span>
+                            <div className="text-xs text-slate-500">Batch: {app.batch}</div>
                           </td>
-                          <td className="py-3.5 px-4">
-                            <span className="font-bold text-[#0F2A4A]">CGPA: {app.cgpa}</span>
-                            <div className="text-[11px] text-gray-500">Batch: {app.batch}</div>
-                          </td>
-                          <td className="py-3.5 px-4 text-gray-500">{app.appliedAt}</td>
-                          <td className="py-3.5 px-4 text-gray-600 font-mono text-[11px]">
-                            {app.cvFileName}
+                          <td className="py-3.5 px-4 text-slate-500 tabular-nums whitespace-nowrap">{app.appliedAt}</td>
+                          <td className="py-3.5 px-4 text-slate-600 font-mono text-xs max-w-[160px]">
+                            <span className="block truncate" title={app.cvFileName}>
+                              {app.cvFileName}
+                            </span>
                           </td>
                           <td className="py-3.5 px-4">
                             <span
-                              className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                              className={`text-xs font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap ${
                                 app.status === 'Selected'
                                   ? 'bg-emerald-100 text-emerald-800'
                                   : app.status === 'Interview Scheduled'
@@ -832,7 +847,7 @@ export const AdminAdminDeskPage: React.FC = () => {
                                   : app.status === 'Shortlisted'
                                   ? 'bg-blue-100 text-blue-800'
                                   : app.status === 'Not Selected'
-                                  ? 'bg-gray-100 text-gray-600'
+                                  ? 'bg-slate-100 text-slate-600'
                                   : 'bg-amber-100 text-amber-800'
                               }`}
                             >

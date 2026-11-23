@@ -42,14 +42,14 @@ export function Table<T>({
   }
 
   return (
-    <div className="w-full overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-xs">
+    <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-[0_2px_10px_rgba(15,42,74,0.04)]">
       <table className="w-full text-left text-sm text-slate-600 border-collapse">
-        <thead className="bg-slate-50/80 border-b border-slate-200 text-xs font-semibold text-slate-700 uppercase tracking-wider">
+        <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-700 uppercase tracking-wider">
           <tr>
             {columns.map((col, idx) => (
               <th
                 key={idx}
-                className={`px-4.5 py-3.5 whitespace-nowrap ${
+                className={`px-4 py-3.5 whitespace-nowrap ${
                   col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
                 } ${col.className || ''}`}
               >
@@ -63,7 +63,7 @@ export function Table<T>({
             <tr>
               <td
                 colSpan={columns.length}
-                className="px-6 py-12 text-center text-slate-400 text-sm font-medium"
+                className="px-6 py-12 text-center text-slate-500 text-sm font-medium"
               >
                 {emptyMessage}
               </td>
@@ -72,12 +72,12 @@ export function Table<T>({
             data.map((item) => (
               <tr
                 key={keyExtractor(item)}
-                className="hover:bg-slate-50/70 transition-colors"
+                className="even:bg-slate-50/40 hover:bg-slate-50/90 transition-colors duration-150"
               >
                 {columns.map((col, colIdx) => (
                   <td
                     key={colIdx}
-                    className={`px-4.5 py-3.5 whitespace-nowrap align-middle ${
+                    className={`px-4 py-3.5 whitespace-nowrap align-middle ${
                       col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
                     } ${col.className || ''}`}
                   >

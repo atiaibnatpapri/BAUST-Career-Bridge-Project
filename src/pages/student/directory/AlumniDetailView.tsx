@@ -31,6 +31,8 @@ import {
   Compass,
   Check
 } from 'lucide-react';
+import { useApp } from '../../../context/AppContext';
+import { buildChatLink } from '../../../constants/baustDataModel';
 import { useDirectoryStore } from '../../../hooks/useDirectoryStore';
 import { EndorseSkillModal } from '../../../components/directory/EndorseSkillModal';
 import { ConnectRequestModal } from '../../../components/directory/ConnectRequestModal';
@@ -40,6 +42,7 @@ import { AlumniQrCardModal } from '../../../components/directory/AlumniQrCardMod
 export const AlumniDetailView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { openOrCreateConversation, role } = useApp();
   const { alumniProfiles, isAlumniSaved, toggleSaveAlumni } = useDirectoryStore();
 
   const alumnus = alumniProfiles.find((p) => p.id === id);
@@ -207,13 +210,17 @@ export const AlumniDetailView: React.FC = () => {
                 Endorse Skill
               </button>
 
-              <Link
-                to={`/chat?user=${alumnus.id}`}
-                className="flex-1 md:flex-initial text-xs font-bold px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 transition-colors flex items-center justify-center gap-1.5"
+              <button
+                type="button"
+                onClick={async () => {
+                  const convId = await openOrCreateConversation(alumnus.id, 'directory');
+                  navigate(buildChatLink(role, convId));
+                }}
+                className="flex-1 md:flex-initial text-xs font-bold px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <MessageSquare className="w-4 h-4 text-navy" />
                 Message
-              </Link>
+              </button>
 
               {alumnus.mentoringAvailable && (
                 <Link
@@ -558,12 +565,16 @@ export const AlumniDetailView: React.FC = () => {
             ) : (
               <div className="p-4 rounded-2xl bg-slate-50 text-xs text-slate-500 space-y-3">
                 <p>Currently not taking new 1:1 mentorship sessions. You can still reach out via Direct Message.</p>
-                <Link
-                  to={`/chat?user=${alumnus.id}`}
-                  className="w-full py-2.5 px-3 rounded-xl bg-navy text-white text-xs font-bold text-center block"
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const convId = await openOrCreateConversation(alumnus.id, 'directory');
+                    navigate(buildChatLink(role, convId));
+                  }}
+                  className="w-full py-2.5 px-3 rounded-xl bg-navy text-white text-xs font-bold text-center block cursor-pointer"
                 >
                   Send Direct Message
-                </Link>
+                </button>
               </div>
             )}
           </div>

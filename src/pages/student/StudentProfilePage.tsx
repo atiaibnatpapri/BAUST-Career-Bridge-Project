@@ -8,17 +8,17 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Avatar } from '../../components/ui/Avatar';
 import { Input, Textarea } from '../../components/ui/Input';
+import { FileUploader } from '../../components/ui/FileUploader';
+import { FilePreviewModal } from '../../components/ui/FilePreviewModal';
+import { ProfilePhotoEditor } from '../../components/profile/ProfilePhotoEditor';
+import { deleteUserFile, UploadFileResult } from '../../services/fileUploadService';
 import { StudentProfile } from '../../types';
 import {
-  UploadCloud,
-  FileCheck,
   CheckCircle2,
   Clock,
   XCircle,
   Download,
-  Trash2,
   Save,
   HardDrive,
 } from 'lucide-react';
@@ -51,9 +51,13 @@ export const StudentProfilePage: React.FC = () => {
 
   // CV Upload & PDF Download State
   const [cvFileName, setCvFileName] = useState(
-    student?.cvFileName ?? userProfile?.cvFileName ?? 'BAUST_Student_Resume.pdf'
+    student?.cvName ?? student?.cvFileName ?? userProfile?.cvName ?? userProfile?.cvFileName ?? ''
   );
+  const [cvUrl, setCvUrl] = useState(student?.cvUrl ?? userProfile?.cvUrl ?? '');
+  const [cvFileDocId, setCvFileDocId] = useState(student?.cvFileDocId ?? userProfile?.cvFileDocId ?? '');
+  const [cvUpdatedAt, setCvUpdatedAt] = useState(student?.cvUpdatedAt ?? userProfile?.cvUpdatedAt ?? '');
   const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
+  const [isCvPreviewOpen, setIsCvPreviewOpen] = useState(false);
   const [isGeneratingCv, setIsGeneratingCv] = useState(false);
 
   // Privacy Settings synced to Firestore (#46, FR-07)
@@ -92,9 +96,11 @@ export const StudentProfilePage: React.FC = () => {
       } else if (Array.isArray(student?.interests)) {
         setSkills(student.interests);
       }
-      if (userProfile?.cvFileName !== undefined || student?.cvFileName !== undefined) {
-        setCvFileName(userProfile?.cvFileName || student?.cvFileName || '');
-      }
+      const nextCvName = userProfile?.cvName || userProfile?.cvFileName || student?.cvName || student?.cvFileName || '';
+      setCvFileName(nextCvName);
+      setCvUrl(userProfile?.cvUrl ?? student?.cvUrl ?? '');
+      setCvFileDocId(userProfile?.cvFileDocId ?? student?.cvFileDocId ?? '');
+      setCvUpdatedAt(userProfile?.cvUpdatedAt ?? student?.cvUpdatedAt ?? '');
       setHideEmail(Boolean(userProfile?.hideEmail));
       setHidePhone(Boolean(userProfile?.hidePhone));
       setProfileVisibility(userProfile?.profileVisibility === 'private' ? 'private' : 'public');
@@ -111,6 +117,10 @@ export const StudentProfilePage: React.FC = () => {
     userProfile?.careerGoal,
     userProfile?.bio,
     userProfile?.cvFileName,
+    userProfile?.cvName,
+    userProfile?.cvUrl,
+    userProfile?.cvFileDocId,
+    userProfile?.cvUpdatedAt,
     userProfile?.hideEmail,
     userProfile?.hidePhone,
     userProfile?.profileVisibility,
@@ -141,6 +151,7 @@ export const StudentProfilePage: React.FC = () => {
         skills,
         cvFileName,
         verificationStatus,
+        photoURL: userProfile?.photoURL || userProfile?.avatar || currentUser?.avatar,
       });
       addToast('success', 'CV PDF Downloaded', `Saved ${downloadedName} to your device.`);
     } catch (err: any) {
@@ -151,10 +162,63 @@ export const StudentProfilePage: React.FC = () => {
     }
   };
 
+  const handleCvUploaded = async (result: UploadFileResult) => {
+    const prevDocId = cvFileDocId;
+    const nowIso = new Date().toISOString();
+    setCvFileName(result.fileName);
+    setCvUrl(result.url);
+    setCvFileDocId(result.fileDocId || '');
+    setCvUpdatedAt(nowIso);
+
+    if (prevDocId && prevDocId !== result.fileDocId) {
+      void deleteUserFile(prevDocId);
+    }
+
+    const res = await updateUserProfile({
+      cvUrl: result.url,
+      cvFileName: result.fileName,
+      cvName: result.fileName,
+      cvFileDocId: result.fileDocId || '',
+      cvUpdatedAt: nowIso,
+    });
+    if (res.success) {
+      addToast('success', 'CV Uploaded', `${result.fileName} is saved to your profile.`);
+    } else {
+      addToast('error', 'CV Save Failed', res.error || 'Could not save CV metadata.');
+    }
+  };
+
+  const handleRemoveCv = async () => {
+    const prevDocId = cvFileDocId;
+    setCvFileName('');
+    setCvUrl('');
+    setCvFileDocId('');
+    setCvUpdatedAt('');
+    if (prevDocId) {
+      void deleteUserFile(prevDocId);
+    }
+    await updateUserProfile({
+      cvUrl: '',
+      cvFileName: '',
+      cvName: '',
+      cvFileDocId: '',
+      cvUpdatedAt: '',
+    });
+    addToast('info', 'CV Removed', 'Your saved PDF CV has been removed.');
+  };
+
   const handleSelectDriveCV = async (file: DriveFileItem) => {
+    const nowIso = new Date().toISOString();
     setCvFileName(file.name);
-    updateStudentProfile({
+    setCvUrl(file.webViewLink || '');
+    setCvFileDocId('');
+    setCvUpdatedAt(nowIso);
+    await updateUserProfile({
       cvFileName: file.name,
+      cvName: file.name,
+      cvUrl: file.webViewLink || '',
+      cvFileDocId: '',
+      cvUpdatedAt: nowIso,
     });
     try {
       await linkDriveDocumentToVault({
@@ -199,6 +263,10 @@ export const StudentProfilePage: React.FC = () => {
       bio,
       interests: skills,
       cvFileName,
+      cvUrl,
+      cvFileDocId,
+      cvName: cvFileName,
+      cvUpdatedAt,
     });
     await updateUserProfile({
       phone,
@@ -208,6 +276,10 @@ export const StudentProfilePage: React.FC = () => {
       bio,
       interests: skills,
       cvFileName,
+      cvUrl,
+      cvFileDocId,
+      cvName: cvFileName,
+      cvUpdatedAt,
       hideEmail,
       hidePhone,
       profileVisibility,
@@ -293,9 +365,10 @@ export const StudentProfilePage: React.FC = () => {
         {/* Profile Card */}
         <Card className="p-6 border-slate-200 space-y-6">
           <div className="flex items-center gap-4">
-            <Avatar
-              src={currentUser?.avatar}
+            <ProfilePhotoEditor
+              src={userProfile?.photoURL || userProfile?.avatar || currentUser?.avatar}
               name={name || 'Student'}
+              uid={userProfile?.uid || userProfile?.id || ''}
               size="xl"
               isVerified={verificationStatus === 'approved'}
             />
@@ -438,89 +511,59 @@ export const StudentProfilePage: React.FC = () => {
 
         {/* CV / Resume Upload & Real PDF Export */}
         <Card className="p-6 border-slate-200 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-bold text-[#0F2A4A]">Curriculum Vitae (CV) & PDF Export</h3>
               <p className="text-xs text-slate-500">
-                Download your formatted PDF CV directly or link a resume from Google Drive
+                Upload your PDF resume (for instant job applications), preview or remove it anytime, or export a formatted PDF CV.
               </p>
             </div>
-            {cvFileName && (
-              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+            {(cvUrl || cvFileName) && (
+              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 w-fit">
                 Active Resume
               </span>
             )}
           </div>
 
-          {cvFileName ? (
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600">
-                  <FileCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-900">{cvFileName}</p>
-                  <p className="text-[11px] text-slate-400">PDF Document · Ready for download</p>
-                </div>
-              </div>
+          <FileUploader
+            kind="cv"
+            uid={userProfile?.uid || userProfile?.id || ''}
+            docId={userProfile?.uid ? `cv_${userProfile.uid}_primary` : undefined}
+            currentUrl={cvUrl}
+            currentFileName={cvFileName}
+            onUploaded={(result) => void handleCvUploaded(result)}
+            onRemove={cvUrl || cvFileName ? () => void handleRemoveCv() : undefined}
+            onPreview={cvUrl || cvFileDocId ? () => setIsCvPreviewOpen(true) : undefined}
+          />
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsDrivePickerOpen(true)}
-                  leftIcon={<HardDrive className="w-3.5 h-3.5" />}
-                >
-                  Change via Google Drive
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  isLoading={isGeneratingCv}
-                  onClick={handleDownloadCvPdf}
-                  leftIcon={<Download className="w-3.5 h-3.5" />}
-                >
-                  Download PDF
-                </Button>
-                <button
-                  type="button"
-                  onClick={() => setCvFileName('')}
-                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                  title="Remove CV"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+            <p className="text-[11px] text-slate-500">
+              {cvUpdatedAt
+                ? `Last updated: ${new Date(cvUpdatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : 'Optional tools'}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsDrivePickerOpen(true)}
+                leftIcon={<HardDrive className="w-3.5 h-3.5" />}
+              >
+                Google Drive
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                isLoading={isGeneratingCv}
+                onClick={handleDownloadCvPdf}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+              >
+                Generate Formatted PDF CV
+              </Button>
             </div>
-          ) : (
-            <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center space-y-3">
-              <UploadCloud className="w-8 h-8 text-slate-400 mx-auto" />
-              <p className="text-xs font-bold text-slate-700">No active CV uploaded</p>
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  isLoading={isGeneratingCv}
-                  onClick={handleDownloadCvPdf}
-                  leftIcon={<Download className="w-3.5 h-3.5" />}
-                >
-                  Generate & Download PDF CV
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsDrivePickerOpen(true)}
-                  leftIcon={<HardDrive className="w-3.5 h-3.5" />}
-                >
-                  Select from Google Drive
-                </Button>
-              </div>
-            </div>
-          )}
+          </div>
         </Card>
 
         {/* Privacy & Notification Settings */}
@@ -635,6 +678,15 @@ export const StudentProfilePage: React.FC = () => {
         title="Attach CV from Google Drive"
         description="Choose an existing PDF or Doc resume from your Google Drive, or upload a new CV directly."
         defaultFilter="PDF"
+      />
+
+      <FilePreviewModal
+        isOpen={isCvPreviewOpen}
+        onClose={() => setIsCvPreviewOpen(false)}
+        title="My Uploaded CV (PDF)"
+        fileName={cvFileName || 'Resume.pdf'}
+        url={cvUrl}
+        fileDocId={cvFileDocId}
       />
     </div>
   );

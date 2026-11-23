@@ -34,6 +34,7 @@ export interface User {
   email: string;
   role: UserRole;
   avatar: string;
+  photoURL?: string;
   department: Department;
   batch: string;
   phone?: string;
@@ -95,6 +96,9 @@ export interface StudentProfile extends User {
   careerGoal: string;
   cvUrl?: string;
   cvFileName?: string;
+  cvFileDocId?: string;
+  cvName?: string;
+  cvUpdatedAt?: string;
 }
 
 export interface StatusHistoryEntry {
@@ -258,6 +262,10 @@ export interface Announcement {
   authorId?: string;
   date: string;
   pinned: boolean;
+  priority?: 'Normal' | 'Important';
+  expiresAt?: string;
+  active?: boolean;
+  updatedAt?: any;
   linkText?: string;
   linkUrl?: string;
   isDemo?: boolean;
@@ -302,7 +310,9 @@ export type JobApplicationStatus =
   | 'Applied'
   | 'Under Review'
   | 'Shortlisted'
+  | 'Call for Interview'
   | 'Interview'
+  | 'Offered'
   | 'Accepted'
   | 'Rejected'
   | 'On Hold'
@@ -321,11 +331,20 @@ export interface JobApplication {
   studentId: string;
   studentName: string;
   studentEmail: string;
+  applicantRole?: UserRole;
+  applicantPhotoURL?: string;
   department: string;
   batch: string;
   cgpa: string;
   cvFileName: string;
+  cvName?: string;
+  cvUrl?: string;
+  cvFileDocId?: string;
   coverNote: string;
+  interviewDate?: string;
+  interviewTime?: string;
+  interviewMode?: string;
+  interviewLink?: string;
   status: JobApplicationStatus;
   statusHistory?: StatusHistoryEntry[];
   isDemo?: boolean;

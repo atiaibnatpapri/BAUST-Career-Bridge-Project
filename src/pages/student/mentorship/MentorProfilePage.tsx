@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMentorshipStore } from '../../../hooks/useMentorshipStore';
 import { useApp } from '../../../context/AppContext';
+import { buildChatLink } from '../../../constants/baustDataModel';
 import { RequestMentorshipModal } from '../../../components/mentorship/RequestMentorshipModal';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
@@ -35,7 +36,7 @@ export const MentorProfilePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { mentors, getMentorById, savedMentorIds, toggleSaveMentor, calculateMatchScore } = useMentorshipStore();
-  const { addToast } = useApp();
+  const { addToast, openOrCreateConversation, role } = useApp();
 
   const mentor = getMentorById(id || '');
 
@@ -175,7 +176,10 @@ export const MentorProfilePage: React.FC = () => {
             <div className="flex items-center gap-3 shrink-0">
               <Button
                 variant="outline"
-                onClick={() => navigate('/chat')}
+                onClick={async () => {
+                  const convId = await openOrCreateConversation(mentor.id, 'mentorship');
+                  navigate(buildChatLink(role, convId));
+                }}
                 className="flex items-center gap-2"
               >
                 <MessageSquare className="w-4 h-4" />

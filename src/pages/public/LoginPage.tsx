@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { CampusHeroBackdrop } from '../../components/ui/CampusHeroBackdrop';
 import { UserRole } from '../../types';
 import { ENABLE_DEMO_LOGIN, DEMO_ACCOUNTS } from '../../config/demoConfig';
 import { getDashboardPathForRole } from './ApprovalStatusPage';
@@ -257,29 +258,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({ portalRole }) => {
       };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center py-8 px-4">
-      <div className="w-full max-w-md space-y-5">
+    <div className="relative min-h-screen flex items-center justify-center pt-24 pb-12 px-4 overflow-hidden">
+      <CampusHeroBackdrop />
+
+      <div className="relative z-10 w-full max-w-md space-y-5">
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-[#0F2A4A] border border-[#C9A227] flex items-center justify-center mx-auto shadow-md">
+          <div className="w-12 h-12 rounded-2xl bg-[#0F2A4A]/90 border border-[#5EEAD4]/50 flex items-center justify-center mx-auto shadow-lg">
             {headerInfo.icon}
           </div>
           {headerInfo.badge && (
-            <span className="inline-block px-3 py-0.5 rounded-full bg-[#0F2A4A]/10 text-[#0F2A4A] text-[10px] font-bold uppercase tracking-wider">
+            <span className="inline-block px-3 py-0.5 rounded-full bg-white/15 text-[#5EEAD4] border border-white/20 text-xs font-bold uppercase tracking-wider">
               {headerInfo.badge}
             </span>
           )}
-          <h1 className="text-2xl font-black text-[#0F2A4A] tracking-tight">{headerInfo.title}</h1>
-          <p className="text-xs text-slate-500">{headerInfo.subtitle}</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">{headerInfo.title}</h1>
+          <p className="text-xs text-slate-200 leading-relaxed">{headerInfo.subtitle}</p>
         </div>
 
         {/* Sign In / Create Account switch */}
-        <div className="grid grid-cols-2 p-1 bg-slate-200/80 rounded-xl text-xs font-bold">
+        <div className="grid grid-cols-2 p-1 bg-white/15 backdrop-blur-sm border border-white/20 rounded-xl text-xs font-bold">
           <div className="py-2 text-center rounded-lg bg-white text-[#0F2A4A] shadow-xs cursor-default">
             {t.auth.signInBtn}
           </div>
           <Link
             to="/register"
-            className="py-2 text-center rounded-lg text-slate-600 hover:text-slate-900 transition-colors flex items-center justify-center gap-1.5"
+            className="py-2 text-center rounded-lg text-white hover:bg-white/10 transition-colors flex items-center justify-center gap-1.5"
           >
             <UserPlus className="w-3.5 h-3.5" />
             <span>{t.auth.createAccountTab}</span>
@@ -287,61 +290,61 @@ export const LoginPage: React.FC<LoginPageProps> = ({ portalRole }) => {
         </div>
 
         {/* 4-Role Portal Hint Selector */}
-        <div className="grid grid-cols-4 gap-1.5 p-1.5 bg-slate-200/70 rounded-xl">
+        <div className="grid grid-cols-4 gap-1.5 p-1.5 bg-white/15 backdrop-blur-sm border border-white/20 rounded-xl">
           <button
             type="button"
             onClick={() => handleRoleSelect('student')}
-            className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+            className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               selectedRole === 'student'
                 ? 'bg-white text-blue-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                : 'text-slate-100 hover:bg-white/10'
             }`}
           >
-            <GraduationCap className="w-4 h-4 text-blue-600" />
+            <GraduationCap className={`w-4 h-4 ${selectedRole === 'student' ? 'text-blue-600' : 'text-blue-300'}`} />
             <span className="truncate max-w-full">{t.roles.student}</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleRoleSelect('alumni')}
-            className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+            className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               selectedRole === 'alumni'
                 ? 'bg-white text-emerald-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                : 'text-slate-100 hover:bg-white/10'
             }`}
           >
-            <Briefcase className="w-4 h-4 text-emerald-700" />
+            <Briefcase className={`w-4 h-4 ${selectedRole === 'alumni' ? 'text-emerald-700' : 'text-emerald-300'}`} />
             <span className="truncate max-w-full">{t.roles.alumni}</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleRoleSelect('admin')}
-            className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+            className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               selectedRole === 'admin'
                 ? 'bg-white text-orange-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                : 'text-slate-100 hover:bg-white/10'
             }`}
           >
-            <ShieldCheck className="w-4 h-4 text-orange-600" />
+            <ShieldCheck className={`w-4 h-4 ${selectedRole === 'admin' ? 'text-orange-600' : 'text-orange-300'}`} />
             <span className="truncate max-w-full">{t.nav.admins}</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleRoleSelect('superAdmin')}
-            className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+            className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               selectedRole === 'superAdmin'
                 ? 'bg-white text-purple-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                : 'text-slate-100 hover:bg-white/10'
             }`}
           >
-            <Crown className="w-4 h-4 text-purple-700" />
+            <Crown className={`w-4 h-4 ${selectedRole === 'superAdmin' ? 'text-purple-700' : 'text-purple-300'}`} />
             <span className="truncate max-w-full">{t.roles.superAdmin}</span>
           </button>
         </div>
 
-        <Card className="p-5 sm:p-7 space-y-5 border-slate-200/90 shadow-md">
+        <Card className="p-6 sm:p-7 space-y-5 border-white/20 shadow-2xl">
           <div aria-live="polite" className="space-y-2 empty:hidden">
             {errorMessage && (
               <div
@@ -398,7 +401,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ portalRole }) => {
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
-                    className="absolute right-3 top-8 text-slate-400 hover:text-slate-700 cursor-pointer"
+                    className="absolute right-3 top-[34px] text-slate-400 hover:text-slate-700 cursor-pointer p-1"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -411,7 +414,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ portalRole }) => {
                       type="checkbox"
                       checked={rememberMe}
                       onChange={(e) => setRememberMe(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded border-slate-300 text-[#0F2A4A] focus:ring-[#0F2A4A]"
+                      className="w-4 h-4 rounded border-slate-300 text-[#0F2A4A] focus:ring-[#14B8A6]"
                     />
                     <span>{t.auth.rememberMe}</span>
                   </label>
@@ -424,7 +427,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ portalRole }) => {
                       setErrorMessage(null);
                       setResetMessage(null);
                     }}
-                    className="text-[11px] font-semibold text-[#0F2A4A] hover:underline cursor-pointer"
+                    className="text-xs font-semibold text-[#0F2A4A] hover:underline cursor-pointer"
                   >
                     {t.auth.forgotPassword}
                   </button>
@@ -491,21 +494,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({ portalRole }) => {
           {ENABLE_DEMO_LOGIN && (
             <div className="pt-4 border-t border-slate-200 space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">
                   <Sparkles className="w-3.5 h-3.5 text-[#C9A227]" />
                   {t.auth.quickDemoTitle}
                 </span>
-                <span className="text-[10px] font-semibold text-slate-400">{t.auth.quickDemoSub}</span>
+                <span className="text-xs font-medium text-slate-500">{t.auth.quickDemoSub}</span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2.5">
                 {DEMO_ACCOUNTS.map((acct) => (
                   <button
                     key={acct.role}
                     type="button"
                     disabled={isLoading || Boolean(demoLoadingRole)}
                     onClick={() => void handleQuickDemoLogin(acct.role)}
-                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer disabled:opacity-50 ${acct.accentClass}`}
+                    className={`p-3 rounded-lg border text-left transition-all min-h-[44px] cursor-pointer disabled:opacity-50 ${acct.accentClass}`}
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-xs font-bold truncate">{acct.label}</span>
@@ -513,7 +516,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ portalRole }) => {
                         <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
                       )}
                     </div>
-                    <p className="text-[10px] opacity-80 truncate mt-0.5">{acct.badgeText}</p>
+                    <p className="text-xs opacity-85 truncate mt-0.5">{acct.badgeText}</p>
                   </button>
                 ))}
               </div>
@@ -521,9 +524,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ portalRole }) => {
           )}
         </Card>
 
-        <p className="text-center text-xs text-slate-600">
+        <p className="text-center text-xs text-slate-200">
           {t.auth.needAccount}{' '}
-          <Link to="/register" className="font-bold text-[#0F2A4A] hover:underline">
+          <Link to="/register" className="font-bold text-[#5EEAD4] hover:underline">
             {t.auth.registerCta}
           </Link>
         </p>

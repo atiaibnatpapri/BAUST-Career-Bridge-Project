@@ -33,6 +33,7 @@ import {
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { useDirectoryStore } from '../../../hooks/useDirectoryStore';
 import { useAuth } from '../../../context/AuthContext';
+import { ProfilePhotoEditor } from '../../../components/profile/ProfilePhotoEditor';
 import { DirectoryAlumniProfile, PrivacySetting, SkillProficiency } from '../../../types/directory';
 import { Department, JobSector, MentorshipTopic } from '../../../types';
 import { BAUST_DEPARTMENTS, BAUST_SECTORS, normalizeDepartment } from '../../../constants/baustDataModel';
@@ -123,6 +124,7 @@ export const AlumniOwnProfilePage: React.FC = () => {
     const base = profile || buildFallbackProfile();
     setFormData({
       ...base,
+      avatar: userProfile?.photoURL || userProfile?.avatar || base.avatar,
       name: userProfile?.name || base.name,
       email: userProfile?.email || base.email,
       department: (userProfile?.department as Department) || base.department,
@@ -192,6 +194,8 @@ export const AlumniOwnProfilePage: React.FC = () => {
 
     if (userProfile) {
       await updateUserProfile({
+        avatar: formData.avatar || userProfile.photoURL || userProfile.avatar || '',
+        photoURL: formData.avatar || userProfile.photoURL || userProfile.avatar || '',
         department: normalizeDepartment(formData.department),
         batch: formData.batch || userProfile.batch || '',
         designation: formData.designation || '',
@@ -455,29 +459,27 @@ export const AlumniOwnProfilePage: React.FC = () => {
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              {/* Avatar Preview & URL */}
+              {/* Avatar Photo Upload */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                   Profile Avatar Image
                 </label>
-                <div className="flex items-center gap-4 mb-3">
-                  <img
-                    src={formData.avatar}
-                    alt=""
-                    className="w-16 h-16 rounded-2xl object-cover border-2 border-navy shadow-sm"
+                <div className="flex items-center gap-4">
+                  <ProfilePhotoEditor
+                    src={userProfile?.photoURL || formData.avatar}
+                    name={userProfile?.name || formData.name || 'Alumni'}
+                    uid={currentAlumniId}
+                    size="xl"
+                    isVerified={Boolean(formData.isVerified)}
+                    onSaved={(url) => {
+                      setFormData((prev) => ({ ...prev, avatar: url }));
+                    }}
                   />
-                  <div className="text-xs text-slate-500">
-                    <p className="font-semibold text-slate-700">Official Profile Avatar</p>
-                    <p className="text-[11px]">Recommended 400x400 square photo</p>
+                  <div className="text-xs text-slate-500 space-y-1">
+                    <p className="font-semibold text-slate-700">Upload New Headshot</p>
+                    <p className="text-[11px]">Click the camera icon to upload JPG, PNG, or WEBP (auto-resized to 400×400).</p>
                   </div>
                 </div>
-                <input
-                  type="text"
-                  value={formData.avatar}
-                  onChange={(e) => handleChange('avatar', e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-navy focus:outline-hidden"
-                />
               </div>
 
               {/* Cover Image Preview & URL */}

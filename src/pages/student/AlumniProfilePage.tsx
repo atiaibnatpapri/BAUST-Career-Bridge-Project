@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { buildChatLink } from '../../constants/baustDataModel';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -32,7 +33,7 @@ import {
 
 export const AlumniProfilePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { alumniList, currentUser, requestMentorship } = useApp();
+  const { alumniList, currentUser, role, requestMentorship, openOrCreateConversation } = useApp();
   const navigate = useNavigate();
 
   // Find alumni by param or fallback to first
@@ -135,16 +136,18 @@ export const AlumniProfilePage: React.FC = () => {
             >
               Request Mentorship
             </Button>
-            <Link to={`/chat?user=${alumni.id}`} className="w-full sm:w-auto">
-              <Button
-                variant="outline"
-                size="md"
-                className="w-full sm:w-auto"
-                leftIcon={<MessageSquare className="w-4 h-4" />}
-              >
-                Send Message
-              </Button>
-            </Link>
+            <Button
+              variant="outline"
+              size="md"
+              className="w-full sm:w-auto"
+              leftIcon={<MessageSquare className="w-4 h-4" />}
+              onClick={async () => {
+                const convId = await openOrCreateConversation(alumni.id, 'directory');
+                navigate(buildChatLink(role, convId));
+              }}
+            >
+              Send Message
+            </Button>
           </div>
         </div>
 
